@@ -23,6 +23,9 @@ targets:
       - path: Sources/App
     info:
       path: Sources/App/Info.plist
+      properties:
+        UIBackgroundModes:
+          - audio
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.caiyi.clipbang
