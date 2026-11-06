@@ -1,0 +1,58 @@
+name: ClipBang
+
+options:
+  bundleIdPrefix: com.caiyi.clipbang
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Manual
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+
+targets:
+
+  ClipBang:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/App
+    info:
+      path: Sources/App/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.caiyi.clipbang
+        PRODUCT_NAME: ClipBang
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    dependencies:
+      - target: ClipBangKeyboard
+        embed: true
+
+  ClipBangKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Keyboard
+    info:
+      path: Sources/Keyboard/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.caiyi.clipbang.keyboard
+        PRODUCT_NAME: ClipBangKeyboard
+        TARGETED_DEVICE_FAMILY: "1"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+
+schemes:
+  ClipBang:
+    build:
+      targets:
+        ClipBang: all
+    run:
+      config: Debug
+    archive:
+      config: Release
