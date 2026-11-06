@@ -39,11 +39,38 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build
 
+      - name: 检查产物结构
+        working-directory: ios
+        run: |
+          APP=build/Build/Products/Release-iphoneos/ClipBang.app
+          echo "=== 主包 ==="
+          ls -la "$APP"
+          echo "=== 扩展 ==="
+          ls -la "$APP/PlugIns" || echo "没有 PlugIns 目录"
+          echo "=== 二进制架构 ==="
+          lipo -info "$APP/ClipBang" || true
+          lipo -info "$APP/PlugIns/ClipBangKeyboard.appex/ClipBangKeyboard" || true
+          echo "=== 最低系统版本 ==="
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP/Info.plist" || true
+
       - name: 打包 ipa
         working-directory: ios
         run: |
-          mkdir -p out/Payload
-          cp -R build/Build/Products/Release-iphoneos/ClipBang.app out/Payload/
+          APP=build/Build/Products/Release-iphoneos/ClipBang.app
+          EXT="$APP/PlugIns/ClipBangKeyboard.appex"
+
+          # 先给扩展补一道 ad-hoc 签名，再签主包。
+          # 顺序不能反，主包签名会校验嵌套的扩展。
+          if [ -d "$EXT" ]; then
+            codesign --force --sign - --timestamp=none "$EXT"
+          fi
+          codesign --force --sign - --timestamp=none "$APP"
+
+          echo "=== 签名结果 ==="
+          codesign -dv --verbose=2 "$APP" 2>&1 | head -8 || true
+
+          rm -rf out && mkdir -p out/Payload
+          ditto "$APP" out/Payload/ClipBang.app
           cd out
           zip -r -q ClipBang.ipa Payload
           ls -lh ClipBang.ipa
