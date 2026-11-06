@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">剪贴炸</string>
+    <string name="ime_name">剪贴炸输入法</string>
+    <string name="ime_subtype">剪贴板</string>
+</resources>

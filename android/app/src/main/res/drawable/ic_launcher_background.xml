@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 图标底色。前景是完整的 3D 图形，这里只需要一个同色兜底，避免裁切边缘露白 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFF0F0F2"
+        android:pathData="M0,0h108v108h-108z" />
+</vector>

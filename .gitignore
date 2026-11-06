@@ -1,0 +1,28 @@
+# 构建工具与产物
+.tooling/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.aab
+*.iml
+.idea/
+
+# 动画验证用的抽帧与录屏，不进库
+docs/*.mp4
+docs/b_*.png
+docs/c_*.png
+docs/d1.png
+docs/e_*.png
+docs/f_*.png
+docs/s1.png
+docs/chk*.png
+docs/chk2.png
+docs/icon_on_desk.png
+docs/drawer*.png
+docs/info*.png
+
+# 系统文件
+.DS_Store
+Thumbs.db
