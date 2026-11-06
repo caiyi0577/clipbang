@@ -15,6 +15,8 @@ final class MonitorProbe {
     private var audioEngine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var started = false
+    private var pollTimer: Timer?
+    private var lastChangeCount: Int = -1
 
     private(set) var classFound = false
     private(set) var selectorResponded = false
@@ -27,9 +29,10 @@ final class MonitorProbe {
     private static let pasteboardChanged: @convention(c) (
         CFNotificationCenter?, UnsafeMutableRawPointer?, CFNotificationName?,
         UnsafeRawPointer?, CFDictionary?
-    ) -> Void = { _, _, _, _, _ in
+    ) -> Void = { _, _, name, _, _ in
+        let label = (name?.rawValue as String?) ?? "(无名)"
         DispatchQueue.main.async {
-            MonitorProbe.shared.note("收到剪贴板变化通知")
+            MonitorProbe.shared.note("Darwin 通知：\(label)")
         }
     }
 
@@ -37,11 +40,33 @@ final class MonitorProbe {
         guard !started else { return }
         started = true
 
-        note("探针启动")
+        note("探针启动 v2")
         startSilentAudio()
-        registerDarwinObserver()
+        registerAllNotifications()
         activatePrivateListener()
+
+        // 轮询对照：只要进程没被挂起，剪贴板一变这里就会有记录。
+        // 轮询有变化而通知没有，就说明系统不再发通知；两者都没有，说明进程被挂起了。
+        lastChangeCount = UIPasteboard.general.changeCount
+        note("初始 changeCount=\(lastChangeCount)")
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.poll()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
         note("监听注册完成")
+    }
+
+    private func poll() {
+        let current = UIPasteboard.general.changeCount
+        if lastChangeCount >= 0 && current != lastChangeCount {
+            note("轮询发现变化 \(lastChangeCount) → \(current)")
+            lastChangeCount = current
+        }
+    }
+
+    @objc private func localPasteboardChanged() {
+        note("本地通知：com.apple.pasteboard.changed")
     }
 
     // MARK: - 后台保活
@@ -76,19 +101,37 @@ final class MonitorProbe {
 
     // MARK: - 通知注册
 
-    private func registerDarwinObserver() {
+    private func registerAllNotifications() {
         let center = CFNotificationCenterGetDarwinNotifyCenter()
-        let name = ["changed", "pasteboard", "apple", "com"].reversed().joined(separator: ".")
+        let systemName = ["changed", "pasteboard", "apple", "com"].reversed().joined(separator: ".")
 
-        CFNotificationCenterAddObserver(
-            center,
-            nil,
-            MonitorProbe.pasteboardChanged,
-            name as CFString,
-            nil,
-            .deliverImmediately
+        // 两个候选：系统全局名 + Clip 当年自己用的跨进程名
+        for name in [systemName, "com.rileytestut.Clip.DidChangePasteboard"] {
+            CFNotificationCenterAddObserver(
+                center,
+                nil,
+                MonitorProbe.pasteboardChanged,
+                name as CFString,
+                nil,
+                .deliverImmediately
+            )
+            note("已监听 Darwin：\(name)")
+        }
+
+        // 进程内通知，Clip 当年走的是这一条，上一版漏了
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(localPasteboardChanged),
+            name: NSNotification.Name(systemName),
+            object: nil
         )
-        note("已监听 \(name)")
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(localPasteboardChanged),
+            name: UIPasteboard.changedNotification,
+            object: nil
+        )
+        note("已监听进程内通知：\(systemName) 与 UIPasteboard.changedNotification")
     }
 
     /// Clip 当年的做法：用字符串拼出私有类名和方法名，避免被静态扫描命中。

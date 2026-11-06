@@ -90,7 +90,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("怎么测")
                 .font(.caption.weight(.semibold))
-            Text("1. 保持这个 App 在后台运行，别上划杀掉\n2. 切到别的 App，复制两三样不同的东西\n3. 回到这里，看日志有没有「收到剪贴板变化通知」")
+            Text("1. 保持这个 App 在后台运行，别上划杀掉\n2. 切到别的 App，复制两三样不同的东西\n3. 回来看日志：有「轮询发现变化」说明进程活着；有「Darwin/本地通知」说明系统还在发通知")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

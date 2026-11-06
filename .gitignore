@@ -32,3 +32,6 @@ ios/certs/
 *.p12
 *.mobileprovision
 密码.txt
+
+# 本机签名工具
+.tools-ios/
