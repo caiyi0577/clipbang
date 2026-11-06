@@ -40,7 +40,7 @@ final class MonitorProbe {
         guard !started else { return }
         started = true
 
-        note("探针启动 v2")
+        note("探针启动 v3")
         startSilentAudio()
         registerAllNotifications()
         activatePrivateListener()
@@ -60,7 +60,18 @@ final class MonitorProbe {
     private func poll() {
         let current = UIPasteboard.general.changeCount
         if lastChangeCount >= 0 && current != lastChangeCount {
-            note("轮询发现变化 \(lastChangeCount) → \(current)")
+            let state: String
+            switch UIApplication.shared.applicationState {
+            case .active:    state = "前台"
+            case .inactive:  state = "过渡"
+            case .background: state = "后台"
+            @unknown default: state = "未知"
+            }
+
+            // 关键验证：后台能不能真读到内容，而不是只知道计数器变了
+            let value = UIPasteboard.general.string
+            let content = value.map { String($0.prefix(40)) } ?? "(读不到)"
+            note("变化 \(lastChangeCount)→\(current)｜\(state)｜内容=\(content)")
             lastChangeCount = current
         }
     }
