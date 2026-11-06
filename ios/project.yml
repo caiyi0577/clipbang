@@ -40,6 +40,16 @@ targets:
       - path: Sources/Keyboard
     info:
       path: Sources/Keyboard/Info.plist
+      properties:
+        CFBundlePackageType: XPC!
+        NSExtension:
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: zh-Hans
+            RequestsOpenAccess: true
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: ClipBangKeyboard.KeyboardViewController
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.caiyi.clipbang.keyboard

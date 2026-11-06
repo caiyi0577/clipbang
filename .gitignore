@@ -26,3 +26,9 @@ docs/info*.png
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 签名证书与私钥，绝对不能进仓库
+ios/certs/
+*.p12
+*.mobileprovision
+密码.txt
