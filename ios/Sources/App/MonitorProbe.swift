@@ -71,7 +71,9 @@ final class MonitorProbe {
             // 关键验证：后台能不能真读到内容，而不是只知道计数器变了
             let value = UIPasteboard.general.string
             let content = value.map { String($0.prefix(40)) } ?? "(读不到)"
-            note("变化 \(lastChangeCount)→\(current)｜\(state)｜内容=\(content)")
+            let saved = value.map { ClipStore.shared.save($0) ? "已入库" : "入库失败" } ?? "未入库"
+            let group = ClipStore.shared.groupAvailable ? "可用" : "不可用"
+            note("变化 \(lastChangeCount)→\(current)｜\(state)｜内容=\(content)｜\(saved)｜共享=\(group)")
             lastChangeCount = current
         }
     }

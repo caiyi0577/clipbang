@@ -21,6 +21,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources/App
+      - path: Sources/Shared
     info:
       path: Sources/App/Info.plist
       properties:
@@ -41,6 +42,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources/Keyboard
+      - path: Sources/Shared
     info:
       path: Sources/Keyboard/Info.plist
       properties:
