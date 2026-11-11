@@ -93,50 +93,66 @@ final class PinyinEngine {
             return
         }
 
-        var seen = Set<String>()
-        var result: [PinyinCandidate] = []
-
-        func add(_ word: String, _ score: Int, _ remaining: String) {
-            guard !word.isEmpty, seen.insert(word).inserted else { return }
-            result.append(PinyinCandidate(word: word, score: score, remaining: remaining))
-        }
+        // 整串候选永远排在连打候选前面，否则「你›hao」会压过「你好」。
+        var primarySeen = Set<String>()
+        var primary: [PinyinCandidate] = []
 
         // 1) 高频表：全局词频 top 4 万，保证单字母/两字母输入也有好词。
         for hit in hot?.lookup(prefix: composing, limit: 40, scanLimit: 40000) ?? [] {
-            add(hit.word, hit.score + 5000 + closenessBonus(hit.key), "")
+            guard primarySeen.insert(hit.word).inserted else { continue }
+            primary.append(PinyinCandidate(
+                word: hit.word,
+                score: hit.score + 5000 + closenessBonus(hit.key),
+                remaining: ""
+            ))
         }
 
         // 2) 全量表：长尾词、成语、专名都在这里。
         for hit in full?.lookup(prefix: composing, limit: 160, scanLimit: 16000) ?? [] {
-            add(hit.word, hit.score + closenessBonus(hit.key), "")
+            guard primarySeen.insert(hit.word).inserted else { continue }
+            primary.append(PinyinCandidate(
+                word: hit.word,
+                score: hit.score + closenessBonus(hit.key),
+                remaining: ""
+            ))
+        }
+        primary.sort { $0.score > $1.score }
+
+        // 3) 连打候选：整串候选不足时才补，且优先切出最长的首个词。
+        var continuations: [PinyinCandidate] = []
+        if primary.count < 12 {
+            let chars = Array(composing)
+            var continuationSeen = Set<String>()
+            var added = 0
+            for boundary in syllableBoundaries(composing).reversed()
+                where boundary > 0 && boundary < chars.count {
+                let head = String(Array(chars[0..<boundary]))
+                let rest = String(Array(chars[boundary..<chars.count]))
+                // 首词至少两个音节，且不做单字连打（否则「大›jia」盖住「大家」）。
+                guard head.count >= 4, rest.count >= 2 else { continue }
+
+                var exact: [(String, Int)] = []
+                for hit in hot?.lookup(prefix: head, limit: 12, scanLimit: 40000) ?? [] where hit.key == head {
+                    exact.append((hit.word, hit.score))
+                }
+                for hit in full?.lookup(prefix: head, limit: 20, scanLimit: 8000) ?? [] where hit.key == head {
+                    exact.append((hit.word, hit.score))
+                }
+                for (word, score) in exact {
+                    guard word.count >= 2,
+                          !primarySeen.contains(word),
+                          continuationSeen.insert(word).inserted else { continue }
+                    continuations.append(PinyinCandidate(word: word, score: score, remaining: rest))
+                    added += 1
+                    if added >= 6 { break }
+                }
+                if added >= 6 { break }
+            }
         }
 
-        // 3) 音节分段：一口气输入多个音节时，给出「首词 + 剩余拼音」的候选。
-        let chars = Array(composing)
-        let boundaries = syllableBoundaries(composing)
-        var segmentHits = 0
-        for boundary in boundaries where boundary > 0 && boundary < chars.count {
-            let head = String(Array(chars[0..<boundary]))
-            let rest = String(Array(chars[boundary..<chars.count]))
-            guard rest.count >= 2 else { continue }
-
-            var exact: [(String, Int)] = []
-            for hit in hot?.lookup(prefix: head, limit: 12, scanLimit: 40000) ?? [] where hit.key == head {
-                exact.append((hit.word, hit.score))
-            }
-            for hit in full?.lookup(prefix: head, limit: 20, scanLimit: 8000) ?? [] where hit.key == head {
-                exact.append((hit.word, hit.score))
-            }
-            for (word, score) in exact.prefix(2) {
-                add(word, score + 6000, rest)
-                segmentHits += 1
-            }
-            if segmentHits >= 6 { break }
-        }
-
-        result.sort { $0.score > $1.score }
-        if result.count > 32 { result.removeSubrange(32..<result.count) }
-        candidates = result
+        continuations.sort { $0.score > $1.score }
+        let merged = primary + continuations
+        candidates = merged.count > 32 ? Array(merged.prefix(32)) : merged
     }
 
     /// 拼音正好敲完的音节优先于还在往后延伸的长词：
