@@ -1,144 +1,187 @@
 import UIKit
 
-/// 键盘负责采集：iOS 16 之后主 App 在后台读不到剪贴板文字，
-/// 但键盘是用户主动唤起的、开了完全访问就能读。所以每次键盘出现
-/// 都把当前剪贴板写进共享库，历史随使用逐步积累。
-/// 主 App 前台轮询仍然保留，用来补上在 App 里操作时的那部分记录。
+/// 剪贴炸键盘：一个真正能打字的键盘 + 剪贴板记录库，双模式切换。
+///
+/// 关键：键盘是「有交互上下文」的进程，只要键盘可见，系统就允许它读剪贴板内容。
+/// 所以活跃期用 Timer 轮询，键盘可见时连续复制的文字会自动逐条入库，
+/// 不用切回主 App、不用手动点刷新。键盘一收起就停，不耗电、不常驻。
 final class KeyboardViewController: UIInputViewController {
 
-    private let panelHeight: CGFloat = 280
-    private var items: [ClipItem] = []
-    private var captureNote = "键盘尚未采集"
-
+    private let panelHeight: CGFloat = 290
+    private let modeSwitch = UISegmentedControl(items: ["键盘", "记录库"])
     private let statusLabel = UILabel()
-    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let contentView = UIView()
+    private let typingView = TypingKeyboardView()
+    private let clipsView = ClipsPanelView()
+
+    private var pollTimer: Timer?
+    private var lastCount: Int = -1
+    private var lastText: String?
+    private var ticks = 0
+    private var captures = 0
+    private var note = "待采集"
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        buildPanel()
+        typingView.controller = self
+        clipsView.controller = self
+        buildUI()
+        modeSwitch.selectedSegmentIndex = 0
+        applyMode()
     }
 
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        captureCurrent()
-        reload()
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        lastText = nil
+        lastCount = UIPasteboard.general.changeCount
+        startPolling()
+        captureTick()
     }
 
-    private func captureCurrent() {
-        let board = UIPasteboard.general
-        guard let text = board.string, !text.isEmpty else {
-            captureNote = "键盘读不到剪贴板 · 检查完全访问"
-            return
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        stopPolling()
+    }
+
+    // MARK: - 供面板与键帽调用
+
+    func insertClip(_ text: String) {
+        textDocumentProxy.insertText(text)
+    }
+
+    func switchToNextKeyboard() {
+        advanceToNextInputMode()
+    }
+
+    // MARK: - 剪贴板轮询
+
+    private func startPolling() {
+        stopPolling()
+        let timer = Timer(timeInterval: 0.8, repeats: true) { [weak self] _ in
+            self?.captureTick()
         }
-        let preview = text
-            .replacingOccurrences(of: "\n", with: " ")
-            .prefix(12)
-        captureNote = ClipStore.shared.save(text)
-            ? "键盘已采集：\(preview)"
-            : "键盘入库失败"
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
     }
 
-    private func reload() {
-        items = Array(ClipStore.shared.all().prefix(15))
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    @objc func captureTick() {
+        let board = UIPasteboard.general
+        let count = board.changeCount
+        let text = board.string
+        lastCount = count
+        ticks += 1
+
+        if let text = text, !text.isEmpty {
+            if text != lastText {
+                lastText = text
+                let preview = text.replacingOccurrences(of: "\n", with: " ").prefix(10)
+                note = ClipStore.shared.save(text)
+                    ? "刚采：\(preview)"
+                    : "入库失败"
+                captures += 1
+                refreshClips()
+            }
+        } else {
+            note = "读不到剪贴板 · 检查完全访问"
+        }
+        updateStatus()
+    }
+
+    private func refreshClips() {
+        clipsView.setItems(Array(ClipStore.shared.all().prefix(40)))
+    }
+
+    private func updateStatus() {
+        let total = ClipStore.shared.all().count
         let group = ClipStore.shared.groupAvailable ? "共享可用" : "共享不可用"
-        let count = items.isEmpty ? "还没有记录" : "共 \(items.count) 条"
-        statusLabel.text = "\(count) · \(group) · \(captureNote)"
-        tableView.reloadData()
+        statusLabel.text = "\(total) 条 · \(group) · count=\(lastCount) · 轮询\(ticks)次/采\(captures)条 · \(note)"
     }
 
-    private func buildPanel() {
-        view.backgroundColor = UIColor(red: 0.961, green: 0.961, blue: 0.961, alpha: 1)
+    // MARK: - UI
 
-        let heightLock = view.heightAnchor.constraint(equalToConstant: panelHeight)
-        heightLock.priority = .defaultHigh
-        heightLock.isActive = true
+    private func buildUI() {
+        view.backgroundColor = .secondarySystemBackground
 
-        statusLabel.font = .systemFont(ofSize: 11)
-        statusLabel.textColor = UIColor(white: 0.42, alpha: 1)
+        let height = view.heightAnchor.constraint(equalToConstant: panelHeight)
+        height.priority = .defaultHigh
+        height.isActive = true
+
+        modeSwitch.addTarget(self, action: #selector(modeChanged), for: .valueChanged)
+        modeSwitch.selectedSegmentTintColor = .systemBlue
+        modeSwitch.widthAnchor.constraint(equalToConstant: 132).isActive = true
+
+        let captureButton = toolButton("采集", action: #selector(captureTapped))
+        let nextButton = toolButton("切换", action: #selector(nextTapped))
+        let dismissButton = toolButton("收起", action: #selector(dismissTapped))
+
+        let toolbar = UIStackView(arrangedSubviews: [modeSwitch, captureButton, nextButton, dismissButton])
+        toolbar.axis = .horizontal
+        toolbar.spacing = 6
+        toolbar.alignment = .center
+
+        statusLabel.font = .systemFont(ofSize: 10)
+        statusLabel.textColor = .secondaryLabel
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 2
         statusLabel.lineBreakMode = .byTruncatingTail
 
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.backgroundColor = .clear
-        tableView.rowHeight = 44
-        tableView.tableFooterView = UIView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(typingView)
+        contentView.addSubview(clipsView)
+        for panel in [typingView, clipsView] {
+            NSLayoutConstraint.activate([
+                panel.topAnchor.constraint(equalTo: contentView.topAnchor),
+                panel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                panel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                panel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            ])
+        }
 
-        let globe = UIButton(type: .system)
-        globe.setTitle("切换键盘", for: .normal)
-        globe.titleLabel?.font = .systemFont(ofSize: 14)
-        globe.addTarget(self, action: #selector(handleNextKeyboard), for: .touchUpInside)
-
-        let refresh = UIButton(type: .system)
-        refresh.setTitle("刷新", for: .normal)
-        refresh.titleLabel?.font = .systemFont(ofSize: 14)
-        refresh.addTarget(self, action: #selector(handleRefresh), for: .touchUpInside)
-
-        let dismiss = UIButton(type: .system)
-        dismiss.setTitle("收起", for: .normal)
-        dismiss.titleLabel?.font = .systemFont(ofSize: 14)
-        dismiss.addTarget(self, action: #selector(handleDismiss), for: .touchUpInside)
-
-        let buttons = UIStackView(arrangedSubviews: [globe, refresh, dismiss])
-        buttons.axis = .horizontal
-        buttons.distribution = .fillEqually
-
-        let root = UIStackView(arrangedSubviews: [statusLabel, tableView, buttons])
+        let root = UIStackView(arrangedSubviews: [toolbar, statusLabel, contentView])
         root.axis = .vertical
-        root.spacing = 8
+        root.spacing = 6
         root.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(root)
-
         NSLayoutConstraint.activate([
-            root.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
-            root.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            root.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
-            statusLabel.heightAnchor.constraint(equalToConstant: 32),
-            buttons.heightAnchor.constraint(equalToConstant: 40),
+            root.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            root.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            root.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
+            toolbar.heightAnchor.constraint(equalToConstant: 30),
+            statusLabel.heightAnchor.constraint(equalToConstant: 26),
+            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 180),
         ])
+
+        updateStatus()
+        refreshClips()
     }
 
-    @objc private func handleNextKeyboard() { advanceToNextInputMode() }
-    @objc private func handleDismiss() { dismissKeyboard() }
-    @objc private func handleRefresh() { captureCurrent(); reload() }
-
-    private func relative(_ timestamp: Double) -> String {
-        let seconds = Date().timeIntervalSince1970 - timestamp
-        if seconds < 60 { return "刚刚" }
-        if seconds < 3600 { return "\(Int(seconds / 60)) 分钟前" }
-        if seconds < 86400 { return "\(Int(seconds / 3600)) 小时前" }
-        return "\(Int(seconds / 86400)) 天前"
-    }
-}
-
-extension KeyboardViewController: UITableViewDataSource, UITableViewDelegate {
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        items.count
+    private func toolButton(_ title: String, action: Selector) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 12)
+        button.setTitleColor(.label, for: .normal)
+        button.backgroundColor = .systemBackground
+        button.layer.cornerRadius = 5
+        button.widthAnchor.constraint(equalToConstant: 46).isActive = true
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return button
     }
 
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        var cell = tableView.dequeueReusableCell(withIdentifier: "clip")
-        if cell == nil {
-            cell = UITableViewCell(style: .subtitle, reuseIdentifier: "clip")
-        }
-        guard let cell else { return UITableViewCell() }
-        let item = items[indexPath.row]
-
-        cell.textLabel?.text = item.text.replacingOccurrences(of: "\n", with: " ")
-        cell.textLabel?.font = .systemFont(ofSize: 15)
-        cell.textLabel?.textColor = UIColor(white: 0.16, alpha: 1)
-        cell.detailTextLabel?.text = relative(item.createdAt)
-        cell.detailTextLabel?.font = .systemFont(ofSize: 11)
-        cell.backgroundColor = .white
-        cell.selectionStyle = .gray
-        return cell
+    private func applyMode() {
+        let typing = modeSwitch.selectedSegmentIndex == 0
+        typingView.isHidden = !typing
+        clipsView.isHidden = typing
+        if !typing { refreshClips() }
     }
 
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        textDocumentProxy.insertText(items[indexPath.row].text)
-        tableView.deselectRow(at: indexPath, animated: true)
-    }
+    @objc private func modeChanged() { applyMode() }
+    @objc private func captureTapped() { captureTick() }
+    @objc private func nextTapped() { switchToNextKeyboard() }
+    @objc private func dismissTapped() { dismissKeyboard() }
 }

@@ -124,7 +124,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("怎么测")
                 .font(.caption.weight(.semibold))
-            Text("1. 连续复制三四条不同的文字，中间不用切回来\n2. 回来看日志：重点找「item[0]」和「通道=items字典/itemSet」\n3. 出现几条「已入库」就抓到几条，等于复制次数即算成功\n4. 这一版直接读 items 字典与 itemSet，并列出私有服务的参数编码备用")
+            Text("1. 设置 → 通用 → 键盘 → 添加「剪贴炸」，并打开「完全访问」\n2. 任意输入框点出键盘，用顶部「键盘 / 记录库」切换两个面板\n3. 键盘可见时复制的文字会自动逐条收进记录库，不用切回本 App\n4. 点记录库里任意一条，直接插入到当前输入框\n5. 中文输入按「切换」回系统键盘；「粘贴」键可直接贴上当前剪贴板")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
