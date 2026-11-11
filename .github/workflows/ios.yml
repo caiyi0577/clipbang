@@ -8,10 +8,22 @@ on:
       - '.github/workflows/ios.yml'
   workflow_dispatch:
 
+# 连续推送时只保留最后一次，避免几轮任务堆在 macOS 队列里互相拖死
+concurrency:
+  group: ios-build
+  cancel-in-progress: true
+
 jobs:
+  # 轻量探针：如果连它都被秒取消，说明是账号层面的 Actions 限制；
+  # 如果它跑通而 build 被取消，问题就只在 macOS runner 上。
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Actions 本身可用"
+
   build:
-    runs-on: macos-14
-    timeout-minutes: 30
+    runs-on: macos-15
+    timeout-minutes: 40
     permissions:
       contents: write
 
@@ -20,7 +32,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 安装 XcodeGen
-        run: brew install xcodegen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
 
       - name: 生成工程
         working-directory: ios

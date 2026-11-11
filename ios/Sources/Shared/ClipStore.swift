@@ -22,10 +22,13 @@ final class ClipStore {
         defaults = UserDefaults(suiteName: ClipStore.groupId) ?? .standard
     }
 
-    /// App Group 是否真的可用。不可用时会退回各自进程的本地存储，
-    /// 键盘就读不到主 App 采集的内容。
+    /// App Group 是否真的可用。containerURL 在没有对应签名权限时返回 nil，
+    /// 比 UserDefaults(suiteName:) 可靠——后者即使没有权限也会返回对象，
+    /// 只是悄悄写进各自进程的沙盒，键盘就读不到主 App 采集的内容。
     var groupAvailable: Bool {
-        UserDefaults(suiteName: ClipStore.groupId) != nil
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: ClipStore.groupId
+        ) != nil
     }
 
     func all() -> [ClipItem] {

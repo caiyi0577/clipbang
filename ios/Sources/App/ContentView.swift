@@ -11,6 +11,8 @@ struct ContentView: View {
         NavigationStack {
             VStack(spacing: 14) {
 
+                storeCard
+
                 statusCard
 
                 HStack(spacing: 10) {
@@ -45,7 +47,7 @@ struct ContentView: View {
             }
             .padding(16)
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("监听诊断")
+            .navigationTitle("剪贴炸 · 采集状态")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 probe.start()
@@ -53,6 +55,38 @@ struct ContentView: View {
             }
             .onReceive(tick) { _ in refresh() }
         }
+    }
+
+    /// 正式版最关心的一屏：到底有没有把复制的内容存进共享区。
+    private var storeCard: some View {
+        let items = ClipStore.shared.all()
+        let available = ClipStore.shared.groupAvailable
+        let latest = items.first.map { String($0.text.prefix(40)) } ?? "无"
+
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("记录库")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Button {
+                    ClipStore.shared.clear()
+                    refresh()
+                } label: {
+                    Text("清空记录")
+                        .font(.caption2)
+                }
+            }
+            row("已入库", "\(items.count) 条", ok: !items.isEmpty)
+            row("共享区", available ? "可用" : "不可用", ok: available)
+            Text("最近一条：\(latest)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var statusCard: some View {
@@ -90,7 +124,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("怎么测")
                 .font(.caption.weight(.semibold))
-            Text("1. 保持这个 App 在后台运行，别上划杀掉\n2. 切到别的 App，复制两三样不同的东西\n3. 回来看日志：有「轮询发现变化」说明进程活着；有「Darwin/本地通知」说明系统还在发通知")
+            Text("1. 打开这个 App 一次，别上划杀掉，让它留在后台\n2. 切到别的 App，复制两三样不同的文字\n3. 回来看「记录库」条数有没有涨；日志里每条「变化」后面会写内容、入库结果和共享区状态\n4. 键盘切到「剪贴炸」，列表里应该能看到刚才复制的内容，点一条即可插入")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
