@@ -14,7 +14,7 @@ final class MonitorProbe {
     static let shared = MonitorProbe()
 
     private let logKey = "clipbang.probe.log.v1"
-    private let logLimit = 300
+    private let logLimit = 600
     private let defaults = UserDefaults.standard
 
     private var audioEngine: AVAudioEngine?
@@ -45,7 +45,7 @@ final class MonitorProbe {
         guard !started else { return }
         started = true
 
-        note("探针启动 v4 · 通知即时读 + 私有接口反射")
+        note("探针启动 v5 · items 字典直读 + 私有接口全量反射")
         startSilentAudio()
         registerAllNotifications()
         activatePrivateListener()
@@ -79,13 +79,54 @@ final class MonitorProbe {
         let direct = board.string
         let rawData = board.data(forPasteboardType: "public.utf8-plain-text")
         let fromData = rawData.flatMap { String(data: $0, encoding: .utf8) }
-        let itemCount = board.items.count
-        let value = direct ?? fromData
+        let dicts = board.items
+        var recovered: String?
 
-        let channel = direct != nil ? "string" : (fromData != nil ? "data" : "全断")
+        // 上一版只记了 items.count，没看字典里装了什么。
+        // 后台第一帧出现过 items=1，如果文本数据就在字典里，
+        // 这条路径可以绕过 UIKit 的粘贴授权检查直接拿到内容。
+        for (i, dict) in dicts.enumerated() {
+            for (type, raw) in dict {
+                var desc = "\(type) = \(type(of: raw))"
+                if let data = raw as? Data {
+                    desc += " (\(data.count)B)"
+                    if let text = String(data: data, encoding: .utf8), !text.isEmpty {
+                        desc += " utf8=\(String(text.prefix(24)))"
+                        if recovered == nil { recovered = text }
+                    }
+                } else if let text = raw as? String {
+                    desc += " 文本=\(String(text.prefix(24)))"
+                    if recovered == nil { recovered = text }
+                } else if let text = raw as? NSString {
+                    let s = text as String
+                    desc += " NSString=\(String(s.prefix(24)))"
+                    if recovered == nil { recovered = s }
+                }
+                note("  item[\(i)] \(desc)")
+            }
+        }
+
+        // 另一组公开 API：按 itemSet 取数据，和 data(forPasteboardType:) 不是同一条路径
+        let types = board.types
+        if let set = board.itemSet(withPasteboardTypes: ["public.utf8-plain-text"]) {
+            let payloads = board.data(forPasteboardType: "public.utf8-plain-text", inItemSet: set)
+            note("  itemSet=\(set) dataSet=\(payloads?.count ?? -1) types=\(types)")
+            if let first = payloads?.first,
+               let text = String(data: first, encoding: .utf8), !text.isEmpty {
+                if recovered == nil { recovered = text }
+                note("  itemSet 解出文本=\(String(text.prefix(24)))")
+            }
+        } else {
+            note("  itemSet=nil types=\(types)")
+        }
+
+        let value = direct ?? fromData ?? recovered
+        let channel = direct != nil ? "string"
+            : (fromData != nil ? "data"
+            : (recovered != nil ? "items字典/itemSet" : "全断"))
         let content = value.map { String($0.prefix(40)) } ?? "(读不到)"
         let saved = value.map { ClipStore.shared.save($0) ? "已入库" : "入库失败" } ?? "未入库"
-        note("\(source)｜\(stateString())｜count=\(board.changeCount)｜items=\(itemCount)｜通道=\(channel)｜内容=\(content)｜\(saved)")
+        note("\(source)｜\(stateString())｜count=\(board.changeCount)｜items=\(dicts.count)｜通道=\(channel)｜内容=\(content)｜\(saved)")
     }
 
     private func stateString() -> String {
@@ -185,34 +226,38 @@ final class MonitorProbe {
         note("已调用 \(selectorName)")
     }
 
-    /// 把私有 pasteboard server 的方法名全列出来。
-    /// 如果即时通知这条窗口也读不到内容，下一步就看这里有没有能直接取数据的接口。
+    /// 把私有 pasteboard server 的实例方法、类方法和参数类型编码全部列出来。
+    /// 有了 encoding 才能安全地用 method_getImplementation 构造精确调用。
     private func inspectPrivatePasteboardServer() {
         let className = ["Connection", "Server", "PB"].reversed().joined()
         guard let cls = NSClassFromString(className) else {
             note("私有类 \(className) 不存在，跳过反射")
             return
         }
+        dumpMethods(of: cls, label: "实例方法")
+        if let meta = object_getClass(cls) {
+            dumpMethods(of: meta, label: "类方法")
+        }
+        note("反射完成：下一步按 encoding 构造 preauthorize / needValues 调用")
+    }
+
+    private func dumpMethods(of cls: AnyClass, label: String) {
         var count: UInt32 = 0
         guard let methods = class_copyMethodList(cls, &count) else {
-            note("私有类拿不到方法列表")
+            note("\(label)：拿不到方法列表")
             return
         }
-        var names: [String] = []
+        note("\(label)：共 \(count) 个")
         for i in 0..<Int(count) {
-            names.append(NSStringFromSelector(method_getName(methods[i])))
+            let m = methods[i]
+            let name = NSStringFromSelector(method_getName(m))
+            let enc = method_getTypeEncoding(m).map { String(cString: $0) } ?? "?"
+            let n = method_getNumberOfArguments(m)
+            let flag = (name.contains("preauthorize") || name.contains("needValues")
+                        || name.contains("AuthenticationMessage") || name.contains("shared"))
+                ? " <<<" : ""
+            note("  \(name) | 参数\(n) | \(enc)\(flag)")
         }
-        // 一次性诊断，这块 C 内存不释放，几十字节，无所谓
-        note("私有类 \(className) 共 \(names.count) 个方法")
-        var line = ""
-        for name in names {
-            if line.count + name.count > 88 {
-                note("  方法：\(line)")
-                line = ""
-            }
-            line += (line.isEmpty ? "" : " ") + name
-        }
-        if !line.isEmpty { note("  方法：\(line)") }
     }
 
     // MARK: - 日志
