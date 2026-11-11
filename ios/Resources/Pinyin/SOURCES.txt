@@ -1,0 +1,21 @@
+拼音词库数据来源与许可
+========================
+
+本目录的 pinyin_full.bin / pinyin_hot.bin 由 ios/Tools/build_pinyin_dict.py 在构建期生成，
+数据取自以下三个开源项目，全部为 MIT License（完整条款见同目录 LICENSE-*.txt）：
+
+1. fxsjy/jieba                 https://github.com/fxsjy/jieba
+   使用文件：jieba/dict.txt（中文词表 + 词频，约 34.8 万条）
+   The MIT License (MIT), Copyright (c) 2013 Sun Junyi
+
+2. mozillazg/pinyin-data       https://github.com/mozillazg/pinyin-data
+   使用文件：pinyin.txt（单字全部读音，含多音字）
+   The MIT License (MIT), Copyright (c) 2016 mozillazg
+
+3. pypinyin                    https://github.com/mozillazg/pinyin-data
+   （同源数据；脚本运行期用其 phrases_dict 取词组级正确读音，如「重庆 / 银行 / 音乐」）
+
+说明：
+- 生成物仅随本自用工程打包，不单独分发；如需对外分发请保留上述版权声明。
+- 生成脚本依赖 Python 3 + pypinyin，CI 不运行它，仓库内提交的是已生成的 .bin。
+- PYD1 二进制格式定义见 ios/Tools/build_pinyin_dict.py 文件头注释。

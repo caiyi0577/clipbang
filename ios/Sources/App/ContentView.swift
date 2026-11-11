@@ -47,7 +47,7 @@ struct ContentView: View {
             }
             .padding(16)
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("剪贴炸 · 采集状态")
+            .navigationTitle("ccbroad · 状态")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 probe.start()
@@ -124,7 +124,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("怎么测")
                 .font(.caption.weight(.semibold))
-            Text("1. 设置 → 通用 → 键盘 → 添加「剪贴炸」，并打开「完全访问」\n2. 任意输入框点出键盘，用顶部「键盘 / 记录库」切换两个面板\n3. 键盘可见时复制的文字会自动逐条收进记录库，不用切回本 App\n4. 点记录库里任意一条，直接插入到当前输入框\n5. 中文输入按「切换」回系统键盘；「粘贴」键可直接贴上当前剪贴板")
+            Text("1. 设置 → 通用 → 键盘 → 添加「ccbroad」，并打开「完全访问」\n2. 默认中文拼音：敲字母出候选，点候选上屏；空格/换行上屏首候选\n3. 支持全拼 nihao、简拼 nh、连打（选带 › 的候选后剩余拼音继续出词）\n4. 点「中」切英文直输；顶部「键盘 / 记录库」切换，点条目直接插入\n5. 键盘可见时复制的文字会自动逐条收进记录库，不用切回本 App")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

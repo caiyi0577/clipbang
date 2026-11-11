@@ -7,7 +7,7 @@ import UIKit
 /// 不用切回主 App、不用手动点刷新。键盘一收起就停，不耗电、不常驻。
 final class KeyboardViewController: UIInputViewController {
 
-    private let panelHeight: CGFloat = 290
+    private let panelHeight: CGFloat = 320
     private let modeSwitch = UISegmentedControl(items: ["键盘", "记录库"])
     private let statusLabel = UILabel()
     private let contentView = UIView()
@@ -41,6 +41,7 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         stopPolling()
+        PinyinEngine.shared.clear()
     }
 
     // MARK: - 供面板与键帽调用
@@ -99,7 +100,7 @@ final class KeyboardViewController: UIInputViewController {
     private func updateStatus() {
         let total = ClipStore.shared.all().count
         let group = ClipStore.shared.groupAvailable ? "共享可用" : "共享不可用"
-        statusLabel.text = "\(total) 条 · \(group) · count=\(lastCount) · 轮询\(ticks)次/采\(captures)条 · \(note)"
+        statusLabel.text = "\(total)条 · \(group) · 词库\(PinyinEngine.shared.diagnostic) · count=\(lastCount) · 轮询\(ticks)/采\(captures) · \(note)"
     }
 
     // MARK: - UI

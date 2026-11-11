@@ -25,7 +25,7 @@ targets:
     info:
       path: Sources/App/Info.plist
       properties:
-        CFBundleDisplayName: 剪贴炸
+        CFBundleDisplayName: ccbroad
         UIBackgroundModes:
           - audio
     settings:
@@ -44,10 +44,14 @@ targets:
     sources:
       - path: Sources/Keyboard
       - path: Sources/Shared
+      - path: Resources/Pinyin/pinyin_full.bin
+        buildPhase: resources
+      - path: Resources/Pinyin/pinyin_hot.bin
+        buildPhase: resources
     info:
       path: Sources/Keyboard/Info.plist
       properties:
-        CFBundleDisplayName: 剪贴炸
+        CFBundleDisplayName: ccbroad
         CFBundleName: ClipBangKeyboard
         CFBundlePackageType: XPC!
         CFBundleShortVersionString: 0.1.0
