@@ -68,6 +68,13 @@ open ClipBang.xcodeproj
 ## 已知结论
 
 静音音频保活在 iOS 27 有效，后台轮询与进程内通知都能察觉剪贴板变化；
-Darwin 跨进程通知已失效，但轮询足够，不依赖它。
-仍待真机验证的是：后台状态下 `UIPasteboard.general.string` 能否读到文字，
-以及重签名后的 App Group 是否真的对主 App 和键盘都生效。
+Darwin 跨进程通知已失效。App Group 已确认对主 App 与键盘都生效。
+
+真机结论：把「从其他 App 粘贴」设为「允许」只消掉弹窗；后台依然被完全屏蔽
+（`changeCount` 报 0、`items=0`、`string`/`data` 全 nil），只有切回前台才读得到
+当前那一条。剪贴板是单槽，中间复制的内容在被覆盖时永久丢失，所以会出现
+「复制三四条只存一条」。
+
+攻坚版（当前）：`MonitorProbe` 在通知回调里**同步立即读**，验证事件发生瞬间
+是否还存在可读窗口；同时用 Objective-C 反射列出私有 `PBServerConnection`
+的全部方法，作为下一步找直接取内容接口的依据。日志上限提到 300 行。

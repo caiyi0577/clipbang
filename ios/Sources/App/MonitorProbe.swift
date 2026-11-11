@@ -2,14 +2,19 @@ import Foundation
 import UIKit
 import AVFoundation
 import UserNotifications
+import ObjectiveC
 
-/// 诊断探针：只回答一个问题——iOS 27 上还能不能收到剪贴板变化的后台通知。
-/// 不接存储、不弹业务通知，所有结果写进日志，回到 App 里直接看。
+/// 后台采集攻坚版。
+/// 之前的轮询在通知到达约 1 秒后才读，那时后台剪贴板已被系统屏蔽
+/// （changeCount=0、items=0、string/data 全 nil）。这一版在通知回调里
+/// 「同一时刻同步读」，验证事件发生的瞬间是否还存在可读窗口；
+/// 同时把私有 pasteboard server 的方法全部列出来，看有没有别的取内容接口。
 final class MonitorProbe {
 
     static let shared = MonitorProbe()
 
     private let logKey = "clipbang.probe.log.v1"
+    private let logLimit = 300
     private let defaults = UserDefaults.standard
 
     private var audioEngine: AVAudioEngine?
@@ -24,8 +29,8 @@ final class MonitorProbe {
     private(set) var audioRunning = false
     private(set) var lastError: String?
 
-    /// Darwin 通知回调必须是 C 函数指针，不能捕获上下文，
-    /// 所以接到单例方法里再处理。
+    /// Darwin 通知回调必须是 C 函数指针，不能捕获上下文。
+    /// 这台设备上 Darwin 跨进程通知一直没收到，保持只记日志。
     private static let pasteboardChanged: @convention(c) (
         CFNotificationCenter?, UnsafeMutableRawPointer?, CFNotificationName?,
         UnsafeRawPointer?, CFDictionary?
@@ -40,13 +45,12 @@ final class MonitorProbe {
         guard !started else { return }
         started = true
 
-        note("探针启动 v3")
+        note("探针启动 v4 · 通知即时读 + 私有接口反射")
         startSilentAudio()
         registerAllNotifications()
         activatePrivateListener()
+        inspectPrivatePasteboardServer()
 
-        // 轮询对照：只要进程没被挂起，剪贴板一变这里就会有记录。
-        // 轮询有变化而通知没有，就说明系统不再发通知；两者都没有，说明进程被挂起了。
         lastChangeCount = UIPasteboard.general.changeCount
         note("初始 changeCount=\(lastChangeCount)")
         let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -58,20 +62,20 @@ final class MonitorProbe {
     }
 
     private func poll() {
-        let board = UIPasteboard.general
-        let current = board.changeCount
+        let current = UIPasteboard.general.changeCount
         guard lastChangeCount >= 0, current != lastChangeCount else { return }
+        capture(source: "轮询 \(lastChangeCount)→\(current)")
+        lastChangeCount = current
+    }
 
-        let state: String
-        switch UIApplication.shared.applicationState {
-        case .active:    state = "前台"
-        case .inactive:  state = "过渡"
-        case .background: state = "后台"
-        @unknown default: state = "未知"
-        }
+    /// 关键：通知投递是同步的，这里不做任何 dispatch，立刻读。
+    /// 如果后台「事件瞬间」还没被屏蔽，这一条就能拿到内容并入库。
+    @objc private func localPasteboardChanged() {
+        capture(source: "即时通知")
+    }
 
-        // iOS 16 之后后台读 .string 会被粘贴隐私限制挡住。
-        // 这里把能试的通道都试一遍，确认有没有别的口子还能拿到文字。
+    private func capture(source: String) {
+        let board = UIPasteboard.general
         let direct = board.string
         let rawData = board.data(forPasteboardType: "public.utf8-plain-text")
         let fromData = rawData.flatMap { String(data: $0, encoding: .utf8) }
@@ -81,13 +85,16 @@ final class MonitorProbe {
         let channel = direct != nil ? "string" : (fromData != nil ? "data" : "全断")
         let content = value.map { String($0.prefix(40)) } ?? "(读不到)"
         let saved = value.map { ClipStore.shared.save($0) ? "已入库" : "入库失败" } ?? "未入库"
-        let group = ClipStore.shared.groupAvailable ? "可用" : "不可用"
-        note("变化 \(lastChangeCount)→\(current)｜\(state)｜通道=\(channel)｜items=\(itemCount)｜内容=\(content)｜\(saved)｜共享=\(group)")
-        lastChangeCount = current
+        note("\(source)｜\(stateString())｜count=\(board.changeCount)｜items=\(itemCount)｜通道=\(channel)｜内容=\(content)｜\(saved)")
     }
 
-    @objc private func localPasteboardChanged() {
-        note("本地通知：com.apple.pasteboard.changed")
+    private func stateString() -> String {
+        switch UIApplication.shared.applicationState {
+        case .active:    return "前台"
+        case .inactive:  return "过渡"
+        case .background: return "后台"
+        @unknown default: return "未知"
+        }
     }
 
     // MARK: - 后台保活
@@ -126,7 +133,6 @@ final class MonitorProbe {
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         let systemName = ["changed", "pasteboard", "apple", "com"].reversed().joined(separator: ".")
 
-        // 两个候选：系统全局名 + Clip 当年自己用的跨进程名
         for name in [systemName, "com.rileytestut.Clip.DidChangePasteboard"] {
             CFNotificationCenterAddObserver(
                 center,
@@ -139,7 +145,6 @@ final class MonitorProbe {
             note("已监听 Darwin：\(name)")
         }
 
-        // 进程内通知，Clip 当年走的是这一条，上一版漏了
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(localPasteboardChanged),
@@ -156,7 +161,6 @@ final class MonitorProbe {
     }
 
     /// Clip 当年的做法：用字符串拼出私有类名和方法名，避免被静态扫描命中。
-    /// 这里只是诊断，能不能调用成功全看系统还认不认。
     private func activatePrivateListener() {
         let className = ["Connection", "Server", "PB"].reversed().joined()
         let selectorName = ["Notifications", "Change", "Pasteboard", "To",
@@ -181,6 +185,36 @@ final class MonitorProbe {
         note("已调用 \(selectorName)")
     }
 
+    /// 把私有 pasteboard server 的方法名全列出来。
+    /// 如果即时通知这条窗口也读不到内容，下一步就看这里有没有能直接取数据的接口。
+    private func inspectPrivatePasteboardServer() {
+        let className = ["Connection", "Server", "PB"].reversed().joined()
+        guard let cls = NSClassFromString(className) else {
+            note("私有类 \(className) 不存在，跳过反射")
+            return
+        }
+        var count: UInt32 = 0
+        guard let methods = class_copyMethodList(cls, &count) else {
+            note("私有类拿不到方法列表")
+            return
+        }
+        var names: [String] = []
+        for i in 0..<Int(count) {
+            names.append(NSStringFromSelector(method_getName(methods[i])))
+        }
+        // 一次性诊断，这块 C 内存不释放，几十字节，无所谓
+        note("私有类 \(className) 共 \(names.count) 个方法")
+        var line = ""
+        for name in names {
+            if line.count + name.count > 88 {
+                note("  方法：\(line)")
+                line = ""
+            }
+            line += (line.isEmpty ? "" : " ") + name
+        }
+        if !line.isEmpty { note("  方法：\(line)") }
+    }
+
     // MARK: - 日志
 
     func note(_ text: String) {
@@ -190,7 +224,7 @@ final class MonitorProbe {
 
         var items = logs()
         items.append(line)
-        if items.count > 120 { items = Array(items.suffix(120)) }
+        if items.count > logLimit { items = Array(items.suffix(logLimit)) }
         defaults.set(items, forKey: logKey)
     }
 

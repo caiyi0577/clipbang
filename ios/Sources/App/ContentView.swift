@@ -124,7 +124,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("怎么测")
                 .font(.caption.weight(.semibold))
-            Text("1. 复制一段文字，直接切到键盘「剪贴炸」——键盘会自己采集当前剪贴板\n2. 列表里点一条即可插入；想再采一次点键盘上的「刷新」\n3. App 在前台时也会补采记录；后台受 iOS 粘贴隐私限制读不到文字，属正常现象\n4. 日志里「通道」一项是后台读取能力的探测结果")
+            Text("1. 连续复制三四条不同的文字，中间不用切回来\n2. 回来看日志有没有「即时通知｜后台｜通道=string｜已入库」——有就说明后台采集通了\n3. 键盘「剪贴炸」里的列表会同步显示记录，点一条即可插入\n4. 这一版在通知到达的瞬间同步读剪贴板，并列出私有 pasteboard 服务的全部方法备用")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
