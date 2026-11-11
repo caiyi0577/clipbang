@@ -1,11 +1,14 @@
 import UIKit
 
-/// 键盘第一版：读出主 App 采集到的记录，点一条就插进当前输入框。
-/// 炸开选词等交互留到采集链路确认之后再做。
+/// 键盘负责采集：iOS 16 之后主 App 在后台读不到剪贴板文字，
+/// 但键盘是用户主动唤起的、开了完全访问就能读。所以每次键盘出现
+/// 都把当前剪贴板写进共享库，历史随使用逐步积累。
+/// 主 App 前台轮询仍然保留，用来补上在 App 里操作时的那部分记录。
 final class KeyboardViewController: UIInputViewController {
 
     private let panelHeight: CGFloat = 280
     private var items: [ClipItem] = []
+    private var captureNote = "键盘尚未采集"
 
     private let statusLabel = UILabel()
     private let tableView = UITableView(frame: .zero, style: .plain)
@@ -17,15 +20,29 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        captureCurrent()
         reload()
+    }
+
+    private func captureCurrent() {
+        let board = UIPasteboard.general
+        guard let text = board.string, !text.isEmpty else {
+            captureNote = "键盘读不到剪贴板 · 检查完全访问"
+            return
+        }
+        let preview = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .prefix(12)
+        captureNote = ClipStore.shared.save(text)
+            ? "键盘已采集：\(preview)"
+            : "键盘入库失败"
     }
 
     private func reload() {
         items = Array(ClipStore.shared.all().prefix(15))
         let group = ClipStore.shared.groupAvailable ? "共享可用" : "共享不可用"
-        statusLabel.text = items.isEmpty
-            ? "还没有记录 · \(group) · 复制点东西试试"
-            : "共 \(items.count) 条 · \(group) · 点一条插入"
+        let count = items.isEmpty ? "还没有记录" : "共 \(items.count) 条"
+        statusLabel.text = "\(count) · \(group) · \(captureNote)"
         tableView.reloadData()
     }
 
@@ -36,9 +53,11 @@ final class KeyboardViewController: UIInputViewController {
         heightLock.priority = .defaultHigh
         heightLock.isActive = true
 
-        statusLabel.font = .systemFont(ofSize: 12)
+        statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.textColor = UIColor(white: 0.42, alpha: 1)
         statusLabel.textAlignment = .center
+        statusLabel.numberOfLines = 2
+        statusLabel.lineBreakMode = .byTruncatingTail
 
         tableView.dataSource = self
         tableView.delegate = self
@@ -76,14 +95,14 @@ final class KeyboardViewController: UIInputViewController {
             root.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             root.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -12),
-            statusLabel.heightAnchor.constraint(equalToConstant: 20),
+            statusLabel.heightAnchor.constraint(equalToConstant: 32),
             buttons.heightAnchor.constraint(equalToConstant: 40),
         ])
     }
 
     @objc private func handleNextKeyboard() { advanceToNextInputMode() }
     @objc private func handleDismiss() { dismissKeyboard() }
-    @objc private func handleRefresh() { reload() }
+    @objc private func handleRefresh() { captureCurrent(); reload() }
 
     private func relative(_ timestamp: Double) -> String {
         let seconds = Date().timeIntervalSince1970 - timestamp

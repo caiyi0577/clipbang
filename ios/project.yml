@@ -25,6 +25,7 @@ targets:
     info:
       path: Sources/App/Info.plist
       properties:
+        CFBundleDisplayName: 剪贴炸
         UIBackgroundModes:
           - audio
     settings:

@@ -58,24 +58,32 @@ final class MonitorProbe {
     }
 
     private func poll() {
-        let current = UIPasteboard.general.changeCount
-        if lastChangeCount >= 0 && current != lastChangeCount {
-            let state: String
-            switch UIApplication.shared.applicationState {
-            case .active:    state = "前台"
-            case .inactive:  state = "过渡"
-            case .background: state = "后台"
-            @unknown default: state = "未知"
-            }
+        let board = UIPasteboard.general
+        let current = board.changeCount
+        guard lastChangeCount >= 0, current != lastChangeCount else { return }
 
-            // 关键验证：后台能不能真读到内容，而不是只知道计数器变了
-            let value = UIPasteboard.general.string
-            let content = value.map { String($0.prefix(40)) } ?? "(读不到)"
-            let saved = value.map { ClipStore.shared.save($0) ? "已入库" : "入库失败" } ?? "未入库"
-            let group = ClipStore.shared.groupAvailable ? "可用" : "不可用"
-            note("变化 \(lastChangeCount)→\(current)｜\(state)｜内容=\(content)｜\(saved)｜共享=\(group)")
-            lastChangeCount = current
+        let state: String
+        switch UIApplication.shared.applicationState {
+        case .active:    state = "前台"
+        case .inactive:  state = "过渡"
+        case .background: state = "后台"
+        @unknown default: state = "未知"
         }
+
+        // iOS 16 之后后台读 .string 会被粘贴隐私限制挡住。
+        // 这里把能试的通道都试一遍，确认有没有别的口子还能拿到文字。
+        let direct = board.string
+        let rawData = board.data(forPasteboardType: "public.utf8-plain-text")
+        let fromData = rawData.flatMap { String(data: $0, encoding: .utf8) }
+        let itemCount = board.items.count
+        let value = direct ?? fromData
+
+        let channel = direct != nil ? "string" : (fromData != nil ? "data" : "全断")
+        let content = value.map { String($0.prefix(40)) } ?? "(读不到)"
+        let saved = value.map { ClipStore.shared.save($0) ? "已入库" : "入库失败" } ?? "未入库"
+        let group = ClipStore.shared.groupAvailable ? "可用" : "不可用"
+        note("变化 \(lastChangeCount)→\(current)｜\(state)｜通道=\(channel)｜items=\(itemCount)｜内容=\(content)｜\(saved)｜共享=\(group)")
+        lastChangeCount = current
     }
 
     @objc private func localPasteboardChanged() {

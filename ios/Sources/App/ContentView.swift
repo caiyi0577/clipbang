@@ -124,7 +124,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("怎么测")
                 .font(.caption.weight(.semibold))
-            Text("1. 打开这个 App 一次，别上划杀掉，让它留在后台\n2. 切到别的 App，复制两三样不同的文字\n3. 回来看「记录库」条数有没有涨；日志里每条「变化」后面会写内容、入库结果和共享区状态\n4. 键盘切到「剪贴炸」，列表里应该能看到刚才复制的内容，点一条即可插入")
+            Text("1. 复制一段文字，直接切到键盘「剪贴炸」——键盘会自己采集当前剪贴板\n2. 列表里点一条即可插入；想再采一次点键盘上的「刷新」\n3. App 在前台时也会补采记录；后台受 iOS 粘贴隐私限制读不到文字，属正常现象\n4. 日志里「通道」一项是后台读取能力的探测结果")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
