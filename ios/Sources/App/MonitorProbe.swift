@@ -86,38 +86,39 @@ final class MonitorProbe {
         // 后台第一帧出现过 items=1，如果文本数据就在字典里，
         // 这条路径可以绕过 UIKit 的粘贴授权检查直接拿到内容。
         for (i, dict) in dicts.enumerated() {
-            for (type, raw) in dict {
-                var desc = "\(type) = \(type(of: raw))"
+            for (pbType, raw) in dict {
+                var desc = "\(pbType) = "
                 if let data = raw as? Data {
-                    desc += " (\(data.count)B)"
+                    desc += "Data(\(data.count)B)"
                     if let text = String(data: data, encoding: .utf8), !text.isEmpty {
                         desc += " utf8=\(String(text.prefix(24)))"
                         if recovered == nil { recovered = text }
                     }
                 } else if let text = raw as? String {
-                    desc += " 文本=\(String(text.prefix(24)))"
+                    desc += "String 文本=\(String(text.prefix(24)))"
                     if recovered == nil { recovered = text }
                 } else if let text = raw as? NSString {
                     let s = text as String
-                    desc += " NSString=\(String(s.prefix(24)))"
+                    desc += "NSString 文本=\(String(s.prefix(24)))"
                     if recovered == nil { recovered = s }
+                } else {
+                    desc += "未知类型"
                 }
                 note("  item[\(i)] \(desc)")
             }
         }
 
         // 另一组公开 API：按 itemSet 取数据，和 data(forPasteboardType:) 不是同一条路径
-        let types = board.types
         if let set = board.itemSet(withPasteboardTypes: ["public.utf8-plain-text"]) {
             let payloads = board.data(forPasteboardType: "public.utf8-plain-text", inItemSet: set)
-            note("  itemSet=\(set) dataSet=\(payloads?.count ?? -1) types=\(types)")
+            note("  itemSet=\(set) dataSet=\(payloads?.count ?? -1)")
             if let first = payloads?.first,
                let text = String(data: first, encoding: .utf8), !text.isEmpty {
                 if recovered == nil { recovered = text }
                 note("  itemSet 解出文本=\(String(text.prefix(24)))")
             }
         } else {
-            note("  itemSet=nil types=\(types)")
+            note("  itemSet=nil")
         }
 
         let value = direct ?? fromData ?? recovered
@@ -235,9 +236,6 @@ final class MonitorProbe {
             return
         }
         dumpMethods(of: cls, label: "实例方法")
-        if let meta = object_getClass(cls) {
-            dumpMethods(of: meta, label: "类方法")
-        }
         note("反射完成：下一步按 encoding 构造 preauthorize / needValues 调用")
     }
 

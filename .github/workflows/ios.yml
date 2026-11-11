@@ -55,7 +55,35 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee build.log
+
+      # 未认证 API 读不到 Actions 日志，编译失败时把日志回写进仓库，
+      # 本地 git pull 就能看到精确报错，不用再靠猜。
+      - name: 编译失败时回传日志
+        if: failure()
+        working-directory: ios
+        run: |
+          mkdir -p ../.ci-logs
+          {
+            echo "run=${{ github.run_number }}"
+            echo "sha=${{ github.sha }}"
+            echo "--- xcodebuild tail ---"
+            tail -n 300 build.log 2>/dev/null || echo "(无 build.log)"
+          } > ../.ci-logs/build-${{ github.run_number }}.log
+          cd ..
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add -f .ci-logs/build-${{ github.run_number }}.log
+          git commit -m "CI 编译日志 run#${{ github.run_number }} [skip ci]" || true
+          git push origin HEAD:main || true
+
+      - name: 上传编译日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: .ci-logs/*.log
+          if-no-files-found: ignore
 
       - name: 检查产物结构
         working-directory: ios
