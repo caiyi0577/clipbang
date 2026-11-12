@@ -38,6 +38,11 @@ PREF = f"{IOS}/SharedUI/preferences/InputSchemePreference.swift"
 LANGUAGE = f"{IOS}/App/Sources/settings/InputLanguage.swift"
 WELCOME = f"{IOS}/App/Sources/app/WelcomeFlowView.swift"
 LANGUAGE_TESTS = f"{IOS}/KeyboardTests/settings/InputLanguageTests.swift"
+VOICE_PRESETS = f"{IOS}/App/Sources/settings/FeatureSettingsViews.swift"
+CLOUD_CANDIDATE_PREF = f"{IOS}/SharedUI/candidate/CloudCandidatePreference.swift"
+CANDIDATE_OPTIONS = f"{IOS}/App/Sources/settings/CandidateOptionsSettingsView.swift"
+KEYBOARD_VC = f"{IOS}/KeyboardExtension/Sources/keyboard/KeyboardViewController.swift"
+RUST_PREFS = "crates/client-core/src/preferences.rs"
 
 
 def source_root() -> Path:
@@ -136,6 +141,52 @@ STALE_COMMENT_CHOICES = "  /// 只列本版本提供的入口：五笔版只剩�
 STALE_COMMENT_BODY = "  /// full 的说法不变；其他版本只说本版本提供的入口。\n"
 
 
+# ---------------------------------------------------------------------------
+# 第二轮：语音去云端 / 云联想恒开 / 云剪贴板改本地 / 翻译走离线释义
+# ---------------------------------------------------------------------------
+# 语音出厂默认已是 local（preferences.rs 的 Default），只需把设置页服务商列表
+# 收敛到设备端，杜绝误开云端。case 保留以兼容已存配置与 Rust provider 目录。
+VOICE_OLD = "    return VoiceProviderPreset.allCases.map { provider in"
+VOICE_NEW = (
+    "    // 定制版只提供设备端识别：云端 provider 的 case 保留以兼容已存配置与 Rust 目录，\n"
+    "    // 但设置页服务商列表只列 local/system，录音不会离开设备。\n"
+    "    return VoiceProviderPreset.allCases.filter(\\.isOnDevice).map { provider in"
+)
+
+CLOUD_DECL_OLD = """  @AppStorage(CloudCandidatePreference.key, store: CloudCandidatePreference.defaults)
+  private var cloudCandidates = false
+"""
+
+CLOUD_TOGGLE_OLD = """          // 副标题就是隐私说明：只有打开这个开关，输入的编码才会离开设备。
+          DesignToggleRow(title: "云候选", info: "仅将当前拼写发送给 \\(cloudRecipient)，不发送已上屏内容、词库或历史；需允许完全访问",
+                          isOn: $cloudCandidates)
+            .accessibilityIdentifier("cloudCandidates")
+          DesignDivider()
+"""
+CLOUD_TOGGLE_NEW = """          // 定制版云候选恒开（Google 输入工具），设置页不再提供开关。
+          EmptyView()
+"""
+
+CLIPBOARD_CLOUD_OLD = """    let cloud = privacyGate.allows(.cloudClipboard) ? KeyboardCloudClipboard(hasFullAccess: hasFullAccess) : nil
+    cloud?.fieldAllowsCloud = { [weak self] in self?.privacyGate.allows(.cloudClipboard) ?? false }
+"""
+CLIPBOARD_CLOUD_NEW = """    // 定制版云剪贴板已移除：键盘只显示本机剪贴板历史，不构造云端面板、不发任何云请求。
+    let cloud: KeyboardCloudClipboard? = nil
+"""
+
+RUST_CLIPBOARD_OLD = """            clipboard_history: false,
+            clipboard_history_limit: default_clipboard_history_limit(),"""
+RUST_CLIPBOARD_NEW = """            clipboard_history: true,
+            clipboard_history_limit: default_clipboard_history_limit(),"""
+
+RUST_GLOSS_OLD = """            candidate_translations: false,
+            candidate_translation_scope: CandidateTranslationScope::Highlighted,
+            candidate_english_gloss: false,"""
+RUST_GLOSS_NEW = """            candidate_translations: false,
+            candidate_translation_scope: CandidateTranslationScope::Highlighted,
+            candidate_english_gloss: true,"""
+
+
 def verify(root: Path) -> None:
     """把裁剪结果打进 CI 日志，便于事后核对这一轮到底生效了没有。"""
     offered = read(root, PREF)
@@ -157,6 +208,25 @@ def verify(root: Path) -> None:
           "日语/日语九键/韩语/越南语/藏文", flush=True)
     print("  保留: MLKitDigitalInkRecognition + HandwritingInputView.swift（手写依赖）", flush=True)
     print("  资源: MSIME_IOS_OMIT_ON_DEMAND=1 瘦包本来就不带粤拼/注音/笔画/日文/五笔词库", flush=True)
+
+    voice = read(root, VOICE_PRESETS)
+    cloud_pref = read(root, CLOUD_CANDIDATE_PREF)
+    options = read(root, CANDIDATE_OPTIONS)
+    kvc = read(root, KEYBOARD_VC)
+    rust = read(root, RUST_PREFS)
+
+    assert "filter(\\.isOnDevice).map" in voice, "语音设置页仍列云端服务商"
+    assert "get { true }" in cloud_pref, "云候选没有恒开"
+    assert "cloudCandidates" not in options, "云候选开关仍在设置页"
+    assert "let cloud: KeyboardCloudClipboard? = nil" in kvc, "云剪贴板未移除"
+    assert "clipboard_history: true," in rust, "本机剪贴板历史未默认开"
+    assert "candidate_english_gloss: true," in rust, "离线英文释义未默认显示"
+
+    print("=== trim summary: 云与隐私 ===", flush=True)
+    print("  语音: 只保留设备端 local/system，云端 ASR 选项全部移除", flush=True)
+    print("  云联想: 恒开，端点 inputtools.google.com，设置页无开关", flush=True)
+    print("  云剪贴板: 移除，键盘只有本机剪贴板历史且默认开启", flush=True)
+    print("  翻译: 离线释义（英文内置 + 六语言 zh-*.db 由 CI 打进包），零联网", flush=True)
     print("TRIM_OK", flush=True)
 
 
@@ -171,6 +241,13 @@ def main() -> None:
     replace_once(root, WELCOME, STALE_COMMENT_BODY, "", "R5 删掉引导页文案的旧版本注释")
     replace_once(root, WELCOME, BODY_OLD, BODY_NEW, "R6 引导页文案去掉 9 键/双拼/五笔")
     overlay(root, LANGUAGE_TESTS, "InputLanguageTests.swift", "R7 语言行测试改为裁剪版断言")
+    replace_once(root, VOICE_PRESETS, VOICE_OLD, VOICE_NEW, "R8 语音服务商只留设备端")
+    overlay(root, CLOUD_CANDIDATE_PREF, "CloudCandidatePreference.swift", "R9 云候选恒开")
+    replace_once(root, CANDIDATE_OPTIONS, CLOUD_DECL_OLD, "", "R10 删掉云候选开关声明")
+    replace_once(root, CANDIDATE_OPTIONS, CLOUD_TOGGLE_OLD, CLOUD_TOGGLE_NEW, "R11 删掉云候选开关 UI")
+    replace_once(root, KEYBOARD_VC, CLIPBOARD_CLOUD_OLD, CLIPBOARD_CLOUD_NEW, "R12 云剪贴板恒为本地")
+    replace_once(root, RUST_PREFS, RUST_CLIPBOARD_OLD, RUST_CLIPBOARD_NEW, "R13 本机剪贴板历史默认开")
+    replace_once(root, RUST_PREFS, RUST_GLOSS_OLD, RUST_GLOSS_NEW, "R14 离线英文释义默认显示")
     verify(root)
 
 

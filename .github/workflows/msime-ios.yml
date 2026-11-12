@@ -150,6 +150,12 @@ jobs:
             mkdir -p target/resources
             resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
             echo "resource_dir=$resource_dir"
+            # 翻译改走完全本地的离线释义库：resources/offline-glosses.lock.json 钉住
+            # zh-fr/ja/es/ru/de/ko.db 与 CC BY-SA NOTICE 的地址、长度和 SHA-256，
+            # 下载到 target/offline-glosses 后由 stage-resources.sh 自动暂存进键盘扩展。
+            python3 scripts/fetch_offline_glosses.py
+            echo "=== offline glosses ==="
+            ls -lh target/offline-glosses
             echo "=== build-app.sh device (bash -x) ==="
             bash -x platforms/ios/build-app.sh "$resource_dir" device
           } 2>&1 | tee "$LOG"
