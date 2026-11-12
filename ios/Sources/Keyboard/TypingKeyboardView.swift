@@ -969,7 +969,7 @@ final class TypingKeyboardView: UIView, UIInputViewAudioFeedback,
 
     // MARK: - KeyCap 回调
 
-    fileprivate func capPressed(_ cap: KeyCap, _ down: Bool) {
+    private func capPressed(_ cap: KeyCap, _ down: Bool) {
         if down {
             if case .character(let value) = cap.spec.kind, page == .letters {
                 showPreview(text: shifted ? value.uppercased() : value, for: cap)
@@ -979,7 +979,7 @@ final class TypingKeyboardView: UIView, UIInputViewAudioFeedback,
         }
     }
 
-    fileprivate func capSwipedUp(_ cap: KeyCap) {
+    private func capSwipedUp(_ cap: KeyCap) {
         guard !cap.spec.hint.isEmpty else { return }
         flushComposing()
         insertWord(cap.spec.hint)
@@ -987,7 +987,7 @@ final class TypingKeyboardView: UIView, UIInputViewAudioFeedback,
         playFeedback()
     }
 
-    fileprivate func capLongBegan(_ cap: KeyCap) {
+    private func capLongBegan(_ cap: KeyCap) {
         switch cap.spec.kind {
         case .delete:
             deleteOnce()
@@ -1001,13 +1001,13 @@ final class TypingKeyboardView: UIView, UIInputViewAudioFeedback,
         }
     }
 
-    fileprivate func capLongMoved(_ cap: KeyCap, point: CGPoint) {
+    private func capLongMoved(_ cap: KeyCap, point: CGPoint) {
         guard !extraPopup.isHidden else { return }
         let local = convert(point, to: extraPopup)
         extraPopup.selected = extraPopup.indexForLocal(local)
     }
 
-    fileprivate func capLongEnded(_ cap: KeyCap, point: CGPoint) {
+    private func capLongEnded(_ cap: KeyCap, point: CGPoint) {
         stopDeleteRepeat()
         guard !extraPopup.isHidden else { return }
         let local = convert(point, to: extraPopup)
@@ -1019,7 +1019,7 @@ final class TypingKeyboardView: UIView, UIInputViewAudioFeedback,
         extraPopup.isHidden = true
     }
 
-    fileprivate func capTapped(_ cap: KeyCap) {
+    private func capTapped(_ cap: KeyCap) {
         playFeedback()
         guard let proxy = controller?.textDocumentProxy else { return }
         let spec = cap.spec
