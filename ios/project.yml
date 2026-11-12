@@ -54,8 +54,8 @@ targets:
         CFBundleDisplayName: ccbroad
         CFBundleName: ClipBangKeyboard
         CFBundlePackageType: XPC!
-        CFBundleShortVersionString: 0.2.1
-        CFBundleVersion: "13"
+        CFBundleShortVersionString: 0.2.2
+        CFBundleVersion: "14"
         NSExtension:
           NSExtensionAttributes:
             IsASCIICapable: false

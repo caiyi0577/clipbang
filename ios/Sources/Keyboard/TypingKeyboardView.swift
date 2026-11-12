@@ -421,6 +421,10 @@ final class TypingKeyboardView: UIView, UIInputViewAudioFeedback,
         addSubview(keysArea)
         addSubview(previewView)
         addSubview(extraPopup)
+        // 底边约束用 750：容器高度够时键区填满，不够时让位给最小高度约束，
+        // 避免 UIStackView.fillEqually 把四行压成 0（真机只露第一排）。
+        let keysBottom = keysArea.bottomAnchor.constraint(equalTo: bottomAnchor)
+        keysBottom.priority = .defaultHigh
         NSLayoutConstraint.activate([
             candidateBar.topAnchor.constraint(equalTo: topAnchor),
             candidateBar.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -430,7 +434,9 @@ final class TypingKeyboardView: UIView, UIInputViewAudioFeedback,
             keysArea.topAnchor.constraint(equalTo: candidateBar.bottomAnchor, constant: 6),
             keysArea.leadingAnchor.constraint(equalTo: leadingAnchor),
             keysArea.trailingAnchor.constraint(equalTo: trailingAnchor),
-            keysArea.bottomAnchor.constraint(equalTo: bottomAnchor),
+            keysBottom,
+            // 4 行 × 43 + 3 × 8 = 196：四行键帽的最小可用高度。
+            keysArea.heightAnchor.constraint(greaterThanOrEqualToConstant: 196),
         ])
         candidateBar.layer.zPosition = 1
     }
