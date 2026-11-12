@@ -1,6 +1,6 @@
 import UIKit
 
-/// 剪贴炸键盘：一个真正能打字的键盘 + 剪贴板记录库，双模式切换。
+/// ccbroad 键盘：拼音打字键盘 + 剪贴板记录库，双模式切换。
 ///
 /// 关键：键盘是「有交互上下文」的进程，只要键盘可见，系统就允许它读剪贴板内容。
 /// 所以活跃期用 Timer 轮询，键盘可见时连续复制的文字会自动逐条入库，
@@ -100,7 +100,8 @@ final class KeyboardViewController: UIInputViewController {
     private func updateStatus() {
         let total = ClipStore.shared.all().count
         let group = ClipStore.shared.groupAvailable ? "共享可用" : "共享不可用"
-        statusLabel.text = "\(total)条 · \(group) · 词库\(PinyinEngine.shared.diagnostic) · count=\(lastCount) · 轮询\(ticks)/采\(captures) · \(note)"
+        // 词库信息放最前面：状态行只有一行、窄屏会截断，诊断信息不能被挤掉。
+        statusLabel.text = "词库\(PinyinEngine.shared.diagnostic) · \(total)条 · \(group) · 轮询\(ticks)/采\(captures) · \(note)"
     }
 
     // MARK: - UI
@@ -114,21 +115,24 @@ final class KeyboardViewController: UIInputViewController {
 
         modeSwitch.addTarget(self, action: #selector(modeChanged), for: .valueChanged)
         modeSwitch.selectedSegmentTintColor = .systemBlue
-        modeSwitch.widthAnchor.constraint(equalToConstant: 132).isActive = true
+        modeSwitch.widthAnchor.constraint(equalToConstant: 120).isActive = true
 
+        let pasteButton = toolButton("粘贴", action: #selector(pasteTapped))
         let captureButton = toolButton("采集", action: #selector(captureTapped))
         let nextButton = toolButton("切换", action: #selector(nextTapped))
         let dismissButton = toolButton("收起", action: #selector(dismissTapped))
 
-        let toolbar = UIStackView(arrangedSubviews: [modeSwitch, captureButton, nextButton, dismissButton])
+        let toolbar = UIStackView(arrangedSubviews: [
+            modeSwitch, pasteButton, captureButton, nextButton, dismissButton,
+        ])
         toolbar.axis = .horizontal
-        toolbar.spacing = 6
+        toolbar.spacing = 5
         toolbar.alignment = .center
 
-        statusLabel.font = .systemFont(ofSize: 10)
+        statusLabel.font = .systemFont(ofSize: 9)
         statusLabel.textColor = .secondaryLabel
         statusLabel.textAlignment = .center
-        statusLabel.numberOfLines = 2
+        statusLabel.numberOfLines = 1
         statusLabel.lineBreakMode = .byTruncatingTail
 
         contentView.translatesAutoresizingMaskIntoConstraints = false
@@ -145,16 +149,16 @@ final class KeyboardViewController: UIInputViewController {
 
         let root = UIStackView(arrangedSubviews: [toolbar, statusLabel, contentView])
         root.axis = .vertical
-        root.spacing = 6
+        root.spacing = 4
         root.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(root)
         NSLayoutConstraint.activate([
-            root.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            root.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
             root.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
             root.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-            root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
-            toolbar.heightAnchor.constraint(equalToConstant: 30),
-            statusLabel.heightAnchor.constraint(equalToConstant: 26),
+            root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
+            toolbar.heightAnchor.constraint(equalToConstant: 28),
+            statusLabel.heightAnchor.constraint(equalToConstant: 15),
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 180),
         ])
 
@@ -169,7 +173,7 @@ final class KeyboardViewController: UIInputViewController {
         button.setTitleColor(.label, for: .normal)
         button.backgroundColor = .systemBackground
         button.layer.cornerRadius = 5
-        button.widthAnchor.constraint(equalToConstant: 46).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 40).isActive = true
         button.addTarget(self, action: action, for: .touchUpInside)
         return button
     }
@@ -185,4 +189,18 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func captureTapped() { captureTick() }
     @objc private func nextTapped() { switchToNextKeyboard() }
     @objc private func dismissTapped() { dismissKeyboard() }
+
+    /// 用户手势上下文，一定能读到剪贴板内容，顺便入库。
+    @objc private func pasteTapped() {
+        guard let text = UIPasteboard.general.string, !text.isEmpty else {
+            note = "剪贴板为空"
+            updateStatus()
+            return
+        }
+        textDocumentProxy.insertText(text)
+        _ = ClipStore.shared.save(text)
+        note = "刚粘贴：\(text.prefix(8))"
+        refreshClips()
+        updateStatus()
+    }
 }
