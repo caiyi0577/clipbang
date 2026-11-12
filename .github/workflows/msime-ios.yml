@@ -1,0 +1,155 @@
+name: Build MSIME iOS device IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/msime-ios.yml'
+
+concurrency:
+  group: msime-ios-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 180
+    permissions:
+      contents: write
+    env:
+      MSIME_IOS_OMIT_ON_DEMAND: "1"
+      # 钉住上游 develop 快照，避免构建跑到一半上游变动导致复现不了。
+      MSIME_SHA: 3bb688bce3488b3a045871444f2181d843dda672
+
+    steps:
+      - name: 选择 Xcode
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          if [ -d /Applications/Xcode_26.3.app ]; then
+            echo "DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer" >> "$GITHUB_ENV"
+          else
+            echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+          fi
+          xcodebuild -version || true
+
+      - name: 拉取 MSIME 源码快照
+        uses: actions/checkout@v4
+        with:
+          repository: metasequoiaime/msime
+          ref: 3bb688bce3488b3a045871444f2181d843dda672
+          path: msime
+          fetch-depth: 1
+          persist-credentials: false
+
+      # 本地 zsign 用的是 dev.prov：App ID 是 app.spinach2172.carrot9535，
+      # App Group 只有 group.48bf5183109e5584.*。必须把 MSIME 里写死的两组标识换掉，
+      # 否则键盘读不到共享容器，扩展也和描述文件对不上。
+      - name: 替换 bundle id 与 App Group
+        working-directory: msime
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          exts = {'.swift', '.yml', '.yaml', '.plist', '.entitlements', '.json',
+                  '.h', '.m', '.mm', '.pbxproj', '.txt', '.md', '.py', '.sh',
+                  '.xml', '.storyboard', '.strings', '.xcconfig'}
+          roots = [Path('platforms/ios'), Path('shared'), Path('crates'), Path('scripts')]
+          changed = 0
+          for root in roots:
+              if not root.exists():
+                  continue
+              for p in root.rglob('*'):
+                  if not p.is_file() or p.suffix not in exts:
+                      continue
+                  try:
+                      s = p.read_text()
+                  except (UnicodeDecodeError, OSError):
+                      continue
+                  # 顺序要紧：先换 App Group，再换 bundle id，避免 group.app.msime.ios 被二次改写。
+                  n = s.replace('group.app.msime.ios', 'group.48bf5183109e5584.1')
+                  n = n.replace('app.msime.ios', 'app.spinach2172.carrot9535')
+                  if n != s:
+                      p.write_text(n)
+                      changed += 1
+          print('patched files:', changed)
+          PY
+          echo "=== bundle ids ==="
+          grep -n 'PRODUCT_BUNDLE_IDENTIFIER' platforms/ios/project.yml | head -4
+          echo "=== App Group ==="
+          grep -n 'fullAppGroupIdentifier' shared/backend/account/BackendAccountClient.swift
+          cat platforms/ios/App/Resources/MSIMEApp.entitlements
+
+      - name: 安装构建工具
+        working-directory: msime
+        run: |
+          set -euo pipefail
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          command -v pod >/dev/null 2>&1 || brew install cocoapods
+          bash scripts/rustup-install.sh aarch64-apple-ios
+          xcodegen --version
+          pod --version
+          rustup target list --installed | grep aarch64-apple-ios
+
+      # build-app.sh device 内部：stage-resources → build-native(onnx-rerank) →
+      # fetch_voice_runtime → xcodegen → pod install → xcodebuild -sdk iphoneos
+      # CODE_SIGNING_ALLOWED=NO。全程不需要 Apple 账号，产物是未签名真机 .app，
+      # 下载到 Windows 后用 zsign + dev.prov 重签装机。
+      - name: 暂存资源并编译真机 App
+        working-directory: msime
+        run: |
+          set -euo pipefail
+          mkdir -p target/resources
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          echo "resource_dir=$resource_dir"
+          bash platforms/ios/build-app.sh "$resource_dir" device 2>&1 | tee /tmp/msime-build.log
+
+      - name: 打包未签名 IPA
+        working-directory: msime
+        run: |
+          set -euo pipefail
+          APP=target/ios/derived-device/Build/Products/Release-iphoneos/MSIMEApp.app
+          if [ ! -d "$APP" ]; then
+            echo "找不到产物，列出已有 .app："
+            find target/ios -maxdepth 6 -name '*.app' -type d || true
+            exit 1
+          fi
+          echo "=== 主包 ==="
+          ls -la "$APP" | head -30
+          echo "=== 键盘扩展 ==="
+          ls -la "$APP/PlugIns"
+          echo "=== 架构 ==="
+          lipo -info "$APP/MSIMEApp" || true
+          lipo -info "$APP/PlugIns/MSIMEKeyboardExtension.appex/MSIMEKeyboardExtension" || true
+          echo "=== 扩展标识 ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/PlugIns/MSIMEKeyboardExtension.appex/Info.plist"
+          rm -rf out && mkdir -p out/Payload
+          ditto "$APP" out/Payload/MSIMEApp.app
+          cd out
+          zip -r -q -y MSIME.ipa Payload
+          ls -lh MSIME.ipa
+
+      - name: 上传构建日志（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msime-build-log-${{ github.run_number }}
+          path: /tmp/msime-build.log
+          if-no-files-found: ignore
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MSIME-ipa
+          path: msime/out/MSIME.ipa
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: 发布到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: msime-${{ github.run_number }}
+          name: MSIME ${{ github.run_number }}
+          files: msime/out/MSIME.ipa
