@@ -108,13 +108,19 @@ final class KeyboardPrefs {
         }
     }
 
-    /// 键盘总高度（pt），三档。工具条 34 + 候选栏 40 + 四行键 + 间距。
+    /// 键盘总高度（pt），三档。工具条 30 + 候选栏 40 + 四行键 + 间距。
+    /// 持久化值可能被旧版本或异常写入污染，这里统一钳到合理区间：
+    /// 一个 0 就足以把整个键盘压成一条线、完全出不来。
     var keyboardHeight: Int {
-        get { number("height", fallback: 288) }
+        get {
+            let stored = number("height", fallback: 320)
+            return (260...400).contains(stored) ? stored : 320
+        }
         set { setNumber(newValue, "height") }
     }
 
-    static let heights = [266, 288, 320]
+    /// 矮 / 标准 / 高。标准档沿用 v11 真机验证过的 320。
+    static let heights = [288, 320, 352]
 
     /// system / light / dark
     var theme: String {

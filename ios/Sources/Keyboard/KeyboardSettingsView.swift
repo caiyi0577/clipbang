@@ -126,7 +126,7 @@ final class KeyboardSettingsView: UIView {
         stack.addArrangedSubview(clearRow)
 
         addHeader("关于")
-        addInfo("版本", "0.2.0 (build 12)")
+        addInfo("版本", "0.2.1 (build 13)")
         addNote("词库 710,935 条全拼 / 简拼索引，来源 jieba、pinyin-data、pypinyin，均为 MIT。\n纯 Swift / UIKit 实现，键盘扩展不引入任何第三方 framework。\n剪贴板记录库在键盘可见时自动采集，需要「完全访问」。")
         addNote("双拼、滑行输入、语音与手写暂未内置：它们需要独立的输入码层与系统权限，本版优先把拼音主链路做扎实。")
 

@@ -21,6 +21,7 @@ final class KeyboardViewController: UIInputViewController {
     private let settingsView = KeyboardSettingsView()
 
     private var heightConstraint: NSLayoutConstraint?
+    private var contentMinHeight: NSLayoutConstraint?
     private var activePanel: Panel = .keyboard
 
     private var pollTimer: Timer?
@@ -111,7 +112,11 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func applySettings() {
-        heightConstraint?.constant = CGFloat(KeyboardPrefs.shared.keyboardHeight)
+        let total = currentHeight()
+        heightConstraint?.constant = total
+        // required 下限也要跟着档位走，不能只改 999 那条：
+        // 万一系统封装高度赢，键区仍然必须撑到目标高度。
+        contentMinHeight?.constant = max(180, total - chromeHeight)
         applyTheme()
         // 模糊音 / 候选字号改了之后，旧的候选排序不能沿用，清掉缓冲重新来。
         PinyinEngine.shared.clear()
@@ -122,11 +127,23 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - UI
 
+    /// 容器上下各留 6 + 工具条 30 + root spacing 4 = 键区之外的固定占用。
+    private var chromeHeight: CGFloat { 46 }
+
+    private func currentHeight() -> CGFloat {
+        CGFloat(KeyboardPrefs.shared.keyboardHeight)
+    }
+
     private func buildUI() {
-        let height = view.heightAnchor.constraint(
-            equalToConstant: CGFloat(KeyboardPrefs.shared.keyboardHeight)
-        )
-        height.priority = .defaultHigh
+        // UIInputViewController 在 viewDidLoad 阶段系统给的 view 高度是 0。
+        // 单靠一条低优先级的 heightAnchor，「高度 = 0」时所有内部约束都能满足，
+        // 系统封装高度约束就会赢，键盘被压成一条线、完全出不来。
+        // v11 靠 contentView 的 required 下限撑住，v12 重构时漏掉了这条。
+        // 这里同时用 999 的目标高度 + required 下限，双保险。
+        let total = currentHeight()
+        let height = view.heightAnchor.constraint(equalToConstant: total)
+        // 低于系统的 required 封装约束避免硬冲突，又远高于普通布局约束。
+        height.priority = UILayoutPriority(999)
         height.isActive = true
         heightConstraint = height
 
@@ -152,6 +169,12 @@ final class KeyboardViewController: UIInputViewController {
         for button in buttons { toolbar.addArrangedSubview(button) }
 
         contentView.translatesAutoresizingMaskIntoConstraints = false
+        // required（默认优先级）：键区至少要有这么高，键盘才不会塌成一条线。
+        let minContent = contentView.heightAnchor.constraint(
+            greaterThanOrEqualToConstant: max(180, total - chromeHeight)
+        )
+        minContent.isActive = true
+        contentMinHeight = minContent
         contentView.addSubview(typingView)
         contentView.addSubview(clipsView)
         contentView.addSubview(settingsView)
