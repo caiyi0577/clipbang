@@ -88,6 +88,19 @@ jobs:
           echo "=== App Group ==="
           grep -n 'fullAppGroupIdentifier' shared/backend/account/BackendAccountClient.swift
           cat platforms/ios/App/Resources/MSIMEApp.entitlements
+          # CocoaPods CDN 上 AppAuth / GoogleSignIn / GTMAppAuth 的 spec checksum 与上游
+          # Podfile.lock 不一致，--deployment 拒绝刷新锁文件会直接中止构建。
+          # 锁文件只在本次构建中使用，允许它更新即可。
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('platforms/ios/build-app.sh')
+          s = p.read_text()
+          n = s.replace('pod install --deployment', 'pod install')
+          assert n != s, 'pod install --deployment line not found'
+          p.write_text(n)
+          print('relaxed pod install --deployment')
+          PY
+          grep -n 'pod install' platforms/ios/build-app.sh
 
       - name: 安装构建工具
         working-directory: msime
