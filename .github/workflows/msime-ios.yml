@@ -23,6 +23,14 @@ jobs:
       MSIME_SHA: 3bb688bce3488b3a045871444f2181d843dda672
 
     steps:
+      # 固定 tag 便于本地免 API 轮询；先删掉上一轮，避免构建失败时残留的旧 IPA 被误当成新产物。
+      - name: 清理上一轮 latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view msime-latest >/dev/null 2>&1 && \
+            gh release delete msime-latest --yes --cleanup-tag || true
+
       - name: 选择 Xcode
         run: |
           set -euo pipefail
@@ -100,10 +108,15 @@ jobs:
         working-directory: msime
         run: |
           set -euo pipefail
-          mkdir -p target/resources
-          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
-          echo "resource_dir=$resource_dir"
-          bash platforms/ios/build-app.sh "$resource_dir" device 2>&1 | tee /tmp/msime-build.log
+          LOG="$GITHUB_WORKSPACE/msime-build.log"
+          {
+            echo "run=${{ github.run_number }} sha=${{ github.sha }}"
+            mkdir -p target/resources
+            resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+            echo "resource_dir=$resource_dir"
+            echo "=== build-app.sh device (bash -x) ==="
+            bash -x platforms/ios/build-app.sh "$resource_dir" device
+          } 2>&1 | tee "$LOG"
 
       - name: 打包未签名 IPA
         working-directory: msime
@@ -136,7 +149,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: msime-build-log-${{ github.run_number }}
-          path: /tmp/msime-build.log
+          path: msime-build.log
           if-no-files-found: ignore
 
       - name: 上传 IPA
@@ -147,9 +160,22 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      # 本地靠这个状态文件判断 job 是否结束，避免把「日志已上传但 IPA 还在上传」
+      # 误判成构建失败。
+      - name: 写构建状态
+        if: always()
+        run: echo "${{ job.status }}" > msime-status.txt
+
+      # 成功时上传 IPA + 日志，失败时只上传日志。本地通过固定 URL 轮询，
+      # 不依赖 GitHub API（匿名请求有每小时限流）。
       - name: 发布到 Release
+        if: always()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: msime-${{ github.run_number }}
-          name: MSIME ${{ github.run_number }}
-          files: msime/out/MSIME.ipa
+          tag_name: msime-latest
+          name: MSIME latest build
+          fail_on_unmatched_files: false
+          files: |
+            msime/out/MSIME.ipa
+            msime-build.log
+            msime-status.txt
