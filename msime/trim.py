@@ -79,20 +79,27 @@ def overlay(root: Path, rel: str, name: str, label: str) -> None:
 # ---------------------------------------------------------------------------
 # R1：唯一的方案总开关。所有入口、启用列表、引导页、共享文档都经过这里。
 # ---------------------------------------------------------------------------
+OFFERED_COMMENT_OLD = "  /// 本版本是否提供这个入口：入口背后的方案在本版本里时提供。手写面板写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有。与 client-core 的 `Edition::offers_touch_scheme` 一致。\n"
+
 OFFERED_OLD = """  var isOfferedByEdition: Bool {
     guard self == .handwriting else { return MSIMEAppEdition.offers(engineScheme) }
     return Self.chineseEngineSchemes.contains(where: MSIMEAppEdition.offers)
   }"""
 
-OFFERED_NEW = """  /// 定制版只提供「全拼 26 键」与「手写」。
+OFFERED_NEW = """  /// 定制版只提供「全拼」与「手写」。
   ///
+  /// 全拼的 26 键、9 键、14 键、18 键都是全拼自己的布局，全部保留；双拼（含九键双拼、
+  /// 粤语双拼）、五笔、注音、笔画、粤拼、日语、韩语、越南语、藏文一律不提供。
   /// 设置页语言行、启用列表、引导页方案卡、键盘「输入方式」面板以及写进共享文档
-  /// 交给 host-api 的 `touch_keyboard_schemes.enabled` 都经过这里，所以双拼、九键、
-  /// 14 键、18 键、九键双拼、五笔、注音、笔画、粤拼、日语、韩语、越南语、藏文
-  /// 一律不再出现、不再启用、也不再传给引擎。
+  /// 交给 host-api 的 `touch_keyboard_schemes.enabled` 都经过这里。
   /// 枚举 case 本身保留：它与 Rust `TouchKeyboardScheme::ALL` 一一对应，删 case 会让
   /// 全项目的穷尽 switch 失配，也会破坏共享偏好文档的 identifier 映射。
-  var isOfferedByEdition: Bool { self == .quanpin || self == .handwriting }"""
+  var isOfferedByEdition: Bool {
+    switch self {
+    case .quanpin, .nineKey, .fourteenKey, .eighteenKey, .handwriting: true
+    default: false
+    }
+  }"""
 
 # ---------------------------------------------------------------------------
 # R2：引导页不再宣称有 9 键 / 双拼 / 五笔，并把「手写」补成可选卡片。
@@ -104,9 +111,10 @@ CHOICES_OLD = """  private static let schemeChoices: [(scheme: ChineseInputSchem
     (.wubi, "五笔", "形码 · 默认 86 版"),
   ].filter { $0.scheme.isOfferedByEdition }"""
 
-CHOICES_NEW = """  /// 定制版引导页只提供全拼与手写。
+CHOICES_NEW = """  /// 定制版引导页只提供全拼（26 / 9 键）与手写。
   private static let schemeChoices: [(scheme: ChineseInputScheme, title: String, detail: String)] = [
     (.quanpin, "全拼 26 键", "最常用，完整拼音"),
+    (.nineKey, "全拼 9 键", "单手更顺手"),
     (.handwriting, "手写", "直接写，不认识的字也能打"),
   ].filter { $0.scheme.isOfferedByEdition }"""
 
@@ -134,18 +142,19 @@ def verify(root: Path) -> None:
     language = read(root, LANGUAGE)
     welcome = read(root, WELCOME)
 
-    assert "var isOfferedByEdition: Bool { self == .quanpin || self == .handwriting }" in offered
+    assert "case .quanpin, .nineKey, .fourteenKey, .eighteenKey, .handwriting: true" in offered
     assert "case quanpin, handwriting" in language
+    assert "case .quanpin: [.quanpin, .fourteenKey, .eighteenKey, .nineKey]" in language
     for gone in ("shuangpin", "wubi", "zhuyin", "stroke", "cantonese",
                  "japanese", "korean", "vietnamese", "tibetan"):
         assert gone not in language, f"InputLanguage.swift still mentions {gone}"
-    for gone in (".nineKey,", ".shuangpin,", ".wubi,", "9 键、双拼和五笔"):
+    for gone in (".shuangpin,", ".wubi,", "9 键、双拼和五笔"):
         assert gone not in welcome, f"WelcomeFlowView.swift still mentions {gone!r}"
 
     print("=== trim summary: 语言与方案 ===", flush=True)
-    print("  提供方案: quanpin(全拼 26 键) + handwriting(手写)", flush=True)
-    print("  已移除: 双拼/自然码/微软/首道/九键/14键/18键/九键双拼/五笔/"
-          "注音/笔画/粤拼/粤语双拼/日语/日语九键/韩语/越南语/藏文", flush=True)
+    print("  提供方案: 全拼（26 键 / 9 键 / 14 键 / 18 键）+ 手写", flush=True)
+    print("  已移除: 双拼/自然码/微软/首道/九键双拼/五笔/注音/笔画/粤拼/粤语双拼/"
+          "日语/日语九键/韩语/越南语/藏文", flush=True)
     print("  保留: MLKitDigitalInkRecognition + HandwritingInputView.swift（手写依赖）", flush=True)
     print("  资源: MSIME_IOS_OMIT_ON_DEMAND=1 瘦包本来就不带粤拼/注音/笔画/日文/五笔词库", flush=True)
     print("TRIM_OK", flush=True)
@@ -154,6 +163,7 @@ def verify(root: Path) -> None:
 def main() -> None:
     root = source_root()
     print(f"trim root: {root}", flush=True)
+    replace_once(root, PREF, OFFERED_COMMENT_OLD, "", "R0 删掉方案总开关的旧版本注释")
     replace_once(root, PREF, OFFERED_OLD, OFFERED_NEW, "R1 方案总开关收敛为全拼+手写")
     overlay(root, LANGUAGE, "InputLanguage.swift", "R2 语言行只留全拼/手写")
     replace_once(root, WELCOME, STALE_COMMENT_CHOICES, "", "R3 删掉引导页多版本注释")

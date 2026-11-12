@@ -27,10 +27,11 @@ enum InputLanguage: String, CaseIterable, Identifiable {
     }
   }
 
-  /// 每门语言只对应本定制版提供的那一个入口。
+  /// 全拼的 26 键、9 键、14 键、18 键都是全拼自己的布局，顺序与 Android
+  /// `TypingPage.Language.QUANPIN` 相同，全部保留。
   var schemes: [ChineseInputScheme] {
     switch self {
-    case .quanpin: [.quanpin]
+    case .quanpin: [.quanpin, .fourteenKey, .eighteenKey, .nineKey]
     case .handwriting: [.handwriting]
     }
   }

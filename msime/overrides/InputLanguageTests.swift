@@ -6,7 +6,7 @@ final class InputLanguageTests: XCTestCase {
     XCTAssertEqual(InputLanguage.allCases, [.quanpin, .handwriting])
     XCTAssertEqual(InputLanguage.quanpin.name, "全拼")
     XCTAssertEqual(InputLanguage.handwriting.name, "手写")
-    XCTAssertEqual(InputLanguage.quanpin.schemes, [.quanpin])
+    XCTAssertEqual(InputLanguage.quanpin.schemes, [.quanpin, .fourteenKey, .eighteenKey, .nineKey])
     XCTAssertEqual(InputLanguage.handwriting.schemes, [.handwriting])
   }
 
