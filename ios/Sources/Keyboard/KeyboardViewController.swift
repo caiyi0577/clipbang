@@ -1,18 +1,27 @@
 import UIKit
 
-/// ccbroad 键盘：拼音打字键盘 + 剪贴板记录库，双模式切换。
+/// ccbroad 键盘容器：顶部一条主流输入法式的工具条，下面挂三个面板
+/// （拼音键盘 / 剪贴板记录库 / 设置）。
 ///
-/// 关键：键盘是「有交互上下文」的进程，只要键盘可见，系统就允许它读剪贴板内容。
+/// 键盘是「有交互上下文」的进程，只要键盘可见，系统就允许它读剪贴板内容。
 /// 所以活跃期用 Timer 轮询，键盘可见时连续复制的文字会自动逐条入库，
 /// 不用切回主 App、不用手动点刷新。键盘一收起就停，不耗电、不常驻。
 final class KeyboardViewController: UIInputViewController {
 
-    private let panelHeight: CGFloat = 320
-    private let modeSwitch = UISegmentedControl(items: ["键盘", "记录库"])
-    private let statusLabel = UILabel()
+    private enum Panel {
+        case keyboard
+        case clips
+        case settings
+    }
+
+    private let toolbar = UIStackView()
     private let contentView = UIView()
     private let typingView = TypingKeyboardView()
     private let clipsView = ClipsPanelView()
+    private let settingsView = KeyboardSettingsView()
+
+    private var heightConstraint: NSLayoutConstraint?
+    private var activePanel: Panel = .keyboard
 
     private var pollTimer: Timer?
     private var lastCount: Int = -1
@@ -23,11 +32,12 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = .secondarySystemBackground
         typingView.controller = self
         clipsView.controller = self
         buildUI()
-        modeSwitch.selectedSegmentIndex = 0
-        applyMode()
+        applyTheme()
+        applyPanel()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -72,73 +82,80 @@ final class KeyboardViewController: UIInputViewController {
 
     @objc func captureTick() {
         let board = UIPasteboard.general
-        let count = board.changeCount
-        let text = board.string
-        lastCount = count
+        lastCount = board.changeCount
         ticks += 1
-
-        if let text = text, !text.isEmpty {
-            if text != lastText {
-                lastText = text
-                let preview = text.replacingOccurrences(of: "\n", with: " ").prefix(10)
-                note = ClipStore.shared.save(text)
-                    ? "刚采：\(preview)"
-                    : "入库失败"
-                captures += 1
-                refreshClips()
-            }
-        } else {
+        guard let text = board.string, !text.isEmpty else {
             note = "读不到剪贴板 · 检查完全访问"
+            return
         }
-        updateStatus()
+        if text != lastText {
+            lastText = text
+            note = ClipStore.shared.save(text) ? "刚采：\(text.prefix(10))" : "入库失败"
+            captures += 1
+            refreshClips()
+        }
     }
 
     private func refreshClips() {
         clipsView.setItems(Array(ClipStore.shared.all().prefix(40)))
     }
 
-    private func updateStatus() {
-        let total = ClipStore.shared.all().count
-        let group = ClipStore.shared.groupAvailable ? "共享可用" : "共享不可用"
-        // 词库信息放最前面：状态行只有一行、窄屏会截断，诊断信息不能被挤掉。
-        statusLabel.text = "词库\(PinyinEngine.shared.diagnostic) · \(total)条 · \(group) · 轮询\(ticks)/采\(captures) · \(note)"
+    // MARK: - 设置生效
+
+    private func applyTheme() {
+        switch KeyboardPrefs.shared.theme {
+        case "light": view.overrideUserInterfaceStyle = .light
+        case "dark": view.overrideUserInterfaceStyle = .dark
+        default: view.overrideUserInterfaceStyle = .unspecified
+        }
+    }
+
+    private func applySettings() {
+        heightConstraint?.constant = CGFloat(KeyboardPrefs.shared.keyboardHeight)
+        applyTheme()
+        // 模糊音 / 候选字号改了之后，旧的候选排序不能沿用，清掉缓冲重新来。
+        PinyinEngine.shared.clear()
+        typingView.applySettings()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
     }
 
     // MARK: - UI
 
     private func buildUI() {
-        view.backgroundColor = .secondarySystemBackground
-
-        let height = view.heightAnchor.constraint(equalToConstant: panelHeight)
+        let height = view.heightAnchor.constraint(
+            equalToConstant: CGFloat(KeyboardPrefs.shared.keyboardHeight)
+        )
         height.priority = .defaultHigh
         height.isActive = true
+        heightConstraint = height
 
-        modeSwitch.addTarget(self, action: #selector(modeChanged), for: .valueChanged)
-        modeSwitch.selectedSegmentTintColor = .systemBlue
-        modeSwitch.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        let logo = UIButton(type: .system)
+        logo.setTitle("ccbroad", for: .normal)
+        logo.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
+        logo.setTitleColor(.systemBlue, for: .normal)
+        logo.addTarget(self, action: #selector(keyboardTapped), for: .touchUpInside)
 
-        let pasteButton = toolButton("粘贴", action: #selector(pasteTapped))
-        let captureButton = toolButton("采集", action: #selector(captureTapped))
-        let nextButton = toolButton("切换", action: #selector(nextTapped))
-        let dismissButton = toolButton("收起", action: #selector(dismissTapped))
-
-        let toolbar = UIStackView(arrangedSubviews: [
-            modeSwitch, pasteButton, captureButton, nextButton, dismissButton,
-        ])
+        let buttons = [
+            toolButton("设置", action: #selector(settingsTapped)),
+            toolButton("剪贴", action: #selector(clipsTapped)),
+            toolButton("粘贴", action: #selector(pasteTapped)),
+            toolButton("表情", action: #selector(emojiTapped)),
+            toolButton("更多", action: #selector(moreTapped)),
+            toolButton("收起", action: #selector(dismissTapped)),
+        ]
         toolbar.axis = .horizontal
-        toolbar.spacing = 5
+        toolbar.distribution = .fillEqually
         toolbar.alignment = .center
-
-        statusLabel.font = .systemFont(ofSize: 9)
-        statusLabel.textColor = .secondaryLabel
-        statusLabel.textAlignment = .center
-        statusLabel.numberOfLines = 1
-        statusLabel.lineBreakMode = .byTruncatingTail
+        toolbar.spacing = 4
+        toolbar.addArrangedSubview(logo)
+        for button in buttons { toolbar.addArrangedSubview(button) }
 
         contentView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(typingView)
         contentView.addSubview(clipsView)
-        for panel in [typingView, clipsView] {
+        contentView.addSubview(settingsView)
+        for panel in [typingView, clipsView, settingsView] {
             NSLayoutConstraint.activate([
                 panel.topAnchor.constraint(equalTo: contentView.topAnchor),
                 panel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -147,22 +164,22 @@ final class KeyboardViewController: UIInputViewController {
             ])
         }
 
-        let root = UIStackView(arrangedSubviews: [toolbar, statusLabel, contentView])
+        settingsView.onChange = { [weak self] in self?.applySettings() }
+        settingsView.onClose = { [weak self] in self?.setPanel(.keyboard) }
+
+        let root = UIStackView(arrangedSubviews: [toolbar, contentView])
         root.axis = .vertical
         root.spacing = 4
         root.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(root)
         NSLayoutConstraint.activate([
             root.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
-            root.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
-            root.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            root.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 6),
+            root.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
-            toolbar.heightAnchor.constraint(equalToConstant: 28),
-            statusLabel.heightAnchor.constraint(equalToConstant: 15),
-            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 180),
+            toolbar.heightAnchor.constraint(equalToConstant: 30),
         ])
 
-        updateStatus()
         refreshClips()
     }
 
@@ -171,36 +188,43 @@ final class KeyboardViewController: UIInputViewController {
         button.setTitle(title, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 12)
         button.setTitleColor(.label, for: .normal)
-        button.backgroundColor = .systemBackground
-        button.layer.cornerRadius = 5
-        button.widthAnchor.constraint(equalToConstant: 40).isActive = true
         button.addTarget(self, action: action, for: .touchUpInside)
         return button
     }
 
-    private func applyMode() {
-        let typing = modeSwitch.selectedSegmentIndex == 0
-        typingView.isHidden = !typing
-        clipsView.isHidden = typing
-        if !typing { refreshClips() }
+    private func setPanel(_ panel: Panel) {
+        activePanel = panel
+        applyPanel()
     }
 
-    @objc private func modeChanged() { applyMode() }
-    @objc private func captureTapped() { captureTick() }
-    @objc private func nextTapped() { switchToNextKeyboard() }
+    private func applyPanel() {
+        typingView.isHidden = activePanel != .keyboard
+        clipsView.isHidden = activePanel != .clips
+        settingsView.isHidden = activePanel != .settings
+        if activePanel == .clips { refreshClips() }
+        if activePanel == .settings { settingsView.refreshInfo() }
+    }
+
+    @objc private func keyboardTapped() { setPanel(.keyboard) }
+    @objc private func settingsTapped() { setPanel(.settings) }
+    @objc private func clipsTapped() { setPanel(.clips) }
     @objc private func dismissTapped() { dismissKeyboard() }
+
+    @objc private func emojiTapped() {
+        setPanel(.keyboard)
+        typingView.showEmoji()
+    }
+
+    @objc private func moreTapped() {
+        setPanel(.keyboard)
+        typingView.showMoreCandidates()
+    }
 
     /// 用户手势上下文，一定能读到剪贴板内容，顺便入库。
     @objc private func pasteTapped() {
-        guard let text = UIPasteboard.general.string, !text.isEmpty else {
-            note = "剪贴板为空"
-            updateStatus()
-            return
-        }
+        guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
         textDocumentProxy.insertText(text)
         _ = ClipStore.shared.save(text)
-        note = "刚粘贴：\(text.prefix(8))"
         refreshClips()
-        updateStatus()
     }
 }
