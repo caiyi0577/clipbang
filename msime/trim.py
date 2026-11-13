@@ -47,6 +47,11 @@ KEYBOARD_LAYOUT_VIEW = f"{IOS}/App/Sources/keyboard/KeyboardLayoutSettingsView.s
 KEYBOARD_LAYOUT_PREF = f"{IOS}/SharedUI/preferences/KeyboardLayoutPreference.swift"
 PLUGIN_DETAIL = f"{IOS}/App/Sources/plugins/PluginDetailView.swift"
 RUST_OPTIONS = "crates/engine/src/host/options.rs"
+TRANSLATION_PREF = f"{IOS}/SharedUI/candidate/TranslationProviderPreference.swift"
+TRANSLATION_STORE = f"{IOS}/KeyboardExtension/Sources/candidate/CandidateTranslationStore.swift"
+TRANSLATION_SETTINGS = f"{IOS}/App/Sources/settings/TranslationProviderSettingsView.swift"
+GLOSS_CARD = f"{IOS}/KeyboardExtension/Sources/candidate/CandidateGlossCard.swift"
+SYS_TRANSLATION = f"{IOS}/KeyboardExtension/Sources/candidate/SystemCandidateTranslationService.swift"
 RUST_PREFS = "crates/client-core/src/preferences.rs"
 
 
@@ -236,6 +241,105 @@ RUST_HELPCODE_NEW = """        helpcode: false,
         strict_quanpin_helpcode: false,
         show_helpcode: false,"""
 
+# ---------------------------------------------------------------------------
+# 第五轮：候选释义改走 Apple 设备端系统翻译（用户选定）
+#
+# 内置 msime-english.db 的 zh_en_glosses 只有 18,474 条、单字仅 2 条（「牛」没有），
+# 且由英文维基词典反向对齐而来，质量很差。改接 Translation.framework 的
+# TranslationSession（iOS 18+）：翻译全在设备端，Apple 只收 bundle ID 与语言对。
+# 前提：系统「设置 → 翻译」里已下载简体中文和目标语言；没装时安静返回空结果，
+# 由候选栏回退到随包离线释义（仍需 candidate_english_gloss = true 作为显示总开关）。
+# ---------------------------------------------------------------------------
+SYS_PROVIDER_CASE_OLD = "  case off, account, niutrans, tencent, custom, ai"
+SYS_PROVIDER_CASE_NEW = "  case off, account, niutrans, tencent, custom, ai, system"
+
+SYS_PROVIDER_TITLE_OLD = """    case .custom: "自定义接口（DeepLX 或 DeepL API）"
+    case .ai: "AI 辅助"
+    }"""
+SYS_PROVIDER_TITLE_NEW = """    case .custom: "自定义接口（DeepLX 或 DeepL API）"
+    case .ai: "AI 辅助"
+    case .system: "系统翻译（设备端，推荐）"
+    }"""
+
+SYS_ROUTE_CASE_OLD = """  case ai(provider: String, endpoint: String, model: String, token: String)
+  /// Nothing was chosen"""
+SYS_ROUTE_CASE_NEW = """  case ai(provider: String, endpoint: String, model: String, token: String)
+  case system
+  /// Nothing was chosen"""
+
+SYS_ROUTE_PROVIDER_OLD = "    case .ai: .ai\n    case .none: nil"
+SYS_ROUTE_PROVIDER_NEW = "    case .ai: .ai\n    case .system: .system\n    case .none: nil"
+
+SYS_ROUTE_SCOPE_OLD = '    case .none: "none"'
+SYS_ROUTE_SCOPE_NEW = '    case .system: "system-apple"\n    case .none: "none"'
+
+SYS_CLIENT_SWITCH_OLD = "    case .account, .none:\n      break"
+SYS_CLIENT_SWITCH_NEW = "    case .account, .none, .system:\n      break"
+
+SYS_PREFERRED_GLOSS_OLD = "    case .niutrans, .tencent, .custom, .ai: return online ?? offline"
+SYS_PREFERRED_GLOSS_NEW = "    case .niutrans, .tencent, .custom, .ai, .system: return online ?? offline"
+
+SYS_ROUTE_IN_OLD = """  static func route(in preferences: [String: Any]?) -> TranslationRoute {
+    let niutrans = """
+SYS_ROUTE_IN_NEW = """  static func route(in preferences: [String: Any]?) -> TranslationRoute {
+    // 定制版：iOS 18+ 一律走 Apple 设备端系统翻译，不再读取任何在线服务配置。
+    if #available(iOS 18.0, *) { return .system }
+    let niutrans = """
+
+SYS_CARD_SOURCE_OLD = "    case offline, account, tencent, niutrans, custom, ai"
+SYS_CARD_SOURCE_NEW = "    case offline, account, tencent, niutrans, custom, ai, system"
+
+SYS_CARD_INIT_OLD = "      case .ai: self = .ai\n      case .none: return nil"
+SYS_CARD_INIT_NEW = "      case .ai: self = .ai\n      case .system: self = .system\n      case .none: return nil"
+
+SYS_CARD_TITLE_OLD = """      case .ai: "AI 辅助"
+      }"""
+SYS_CARD_TITLE_NEW = """      case .ai: "AI 辅助"
+      case .system: "系统翻译"
+      }"""
+
+SYS_STORE_INIT_OLD = """  init(service: any CandidateTranslationService = ProviderCandidateTranslationService(route: .none), scope: String = "none",
+       cacheLimit: Int = 2_000) {
+    self.service = service
+    self.scope = scope
+    self.cacheLimit = cacheLimit
+  }"""
+SYS_STORE_INIT_NEW = """  init(service: (any CandidateTranslationService)? = nil, scope: String = "system-apple",
+       cacheLimit: Int = 2_000) {
+    if let service {
+      self.service = service
+    } else if #available(iOS 18.0, *) {
+      self.service = SystemCandidateTranslationService()
+    } else {
+      self.service = ProviderCandidateTranslationService(route: .none)
+    }
+    self.scope = scope
+    self.cacheLimit = cacheLimit
+  }"""
+
+SYS_APPLY_ROUTE_OLD = """    translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
+                     scope: scope)"""
+SYS_APPLY_ROUTE_NEW = """    // 定制版：候选释义一律由 Apple 设备端系统翻译提供，不发任何网络请求。
+    if #available(iOS 18.0, *) {
+      translations.use(SystemCandidateTranslationService(), scope: "system-apple")
+    } else {
+      translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
+                       scope: scope)
+    }"""
+
+SYS_SETTINGS_SWITCH_OLD = "      case .off, .account:\n        EmptyView()"
+SYS_SETTINGS_SWITCH_NEW = "      case .off, .account, .system:\n        EmptyView()"
+
+SYS_SETTINGS_INFO_OLD = '    case .off: return "键盘不会把候选词发给任何在线服务；英文释义仍来自离线词库。\\n\\n" + general'
+SYS_SETTINGS_INFO_NEW = '    case .off, .system: return "候选词由 iOS 系统翻译在这台设备上翻译，原文和译文都不离开设备。需先在「设置 → 翻译」下载简体中文与目标语言。\\n\\n" + general'
+
+SYS_RUST_DEFAULTS_OLD = """            candidate_translations: false,
+            candidate_translation_scope: CandidateTranslationScope::Highlighted,
+            candidate_english_gloss: true,"""
+SYS_RUST_DEFAULTS_NEW = """            candidate_translations: true,
+            candidate_translation_scope: CandidateTranslationScope::Highlighted,
+            candidate_english_gloss: true,"""
+
 
 def verify(root: Path) -> None:
     """把裁剪结果打进 CI 日志，便于事后核对这一轮到底生效了没有。"""
@@ -293,6 +397,27 @@ def verify(root: Path) -> None:
     print("=== trim summary: 辅助码已移除 ===", flush=True)
     print("  设置页「辅助码」整组、Shift 开关、插件页入口全部移除", flush=True)
     print("  ⇧ 固定为分词键；引擎 helpcode / show_helpcode 默认关", flush=True)
+
+    tpref = read(root, TRANSLATION_PREF)
+    tstore = read(root, TRANSLATION_STORE)
+    tsettings = read(root, TRANSLATION_SETTINGS)
+    gcard = read(root, GLOSS_CARD)
+    sys_file = read(root, SYS_TRANSLATION)
+
+    assert "import Translation" in sys_file, "系统翻译服务未落地"
+    assert "case off, account, niutrans, tencent, custom, ai, system" in tpref
+    assert "  case system\n" in tpref
+    assert "if #available(iOS 18.0, *) { return .system }" in tpref
+    assert "SystemCandidateTranslationService()" in tstore
+    assert 'SystemCandidateTranslationService(), scope: "system-apple"' in kvc
+    assert "case .off, .account, .system:" in tsettings
+    assert "case offline, account, tencent, niutrans, custom, ai, system" in gcard
+    assert "candidate_translations: true," in rust
+
+    print("=== trim summary: Apple 系统翻译 ===", flush=True)
+    print("  TranslationSession 设备端翻译，原文译文不出设备、零联网", flush=True)
+    print("  前提：系统「设置 → 翻译」已下载简体中文与目标语言", flush=True)
+    print("  离线表保留为语言包未装时的兜底；在线服务不再被选中", flush=True)
     print("TRIM_OK", flush=True)
 
 
@@ -319,6 +444,23 @@ def main() -> None:
     replace_once(root, KEYBOARD_LAYOUT_PREF, SHIFT_PREF_OLD, SHIFT_PREF_NEW, "R17 辅助码偏好恒关")
     replace_once(root, PLUGIN_DETAIL, PLUGIN_LINK_OLD, "", "R18 移除插件页辅助码入口")
     replace_once(root, RUST_OPTIONS, RUST_HELPCODE_OLD, RUST_HELPCODE_NEW, "R19 引擎辅助码默认关")
+    overlay(root, SYS_TRANSLATION, "SystemCandidateTranslationService.swift", "R20 新增 Apple 系统翻译服务")
+    replace_once(root, TRANSLATION_PREF, SYS_PROVIDER_CASE_OLD, SYS_PROVIDER_CASE_NEW, "R21 翻译服务枚举加 system")
+    replace_once(root, TRANSLATION_PREF, SYS_PROVIDER_TITLE_OLD, SYS_PROVIDER_TITLE_NEW, "R22 服务名加系统翻译")
+    replace_once(root, TRANSLATION_PREF, SYS_ROUTE_CASE_OLD, SYS_ROUTE_CASE_NEW, "R23 路由枚举加 system")
+    replace_once(root, TRANSLATION_PREF, SYS_ROUTE_PROVIDER_OLD, SYS_ROUTE_PROVIDER_NEW, "R24 路由 provider 分支")
+    replace_once(root, TRANSLATION_PREF, SYS_ROUTE_SCOPE_OLD, SYS_ROUTE_SCOPE_NEW, "R25 路由缓存分支")
+    replace_once(root, TRANSLATION_PREF, SYS_CLIENT_SWITCH_OLD, SYS_CLIENT_SWITCH_NEW, "R26 客户端 switch 补 system")
+    replace_once(root, TRANSLATION_PREF, SYS_ROUTE_IN_OLD, SYS_ROUTE_IN_NEW, "R27 路由恒为系统翻译")
+    replace_once(root, GLOSS_CARD, SYS_CARD_SOURCE_OLD, SYS_CARD_SOURCE_NEW, "R28 释义卡来源加 system")
+    replace_once(root, GLOSS_CARD, SYS_CARD_INIT_OLD, SYS_CARD_INIT_NEW, "R29 释义卡构造分支")
+    replace_once(root, GLOSS_CARD, SYS_CARD_TITLE_OLD, SYS_CARD_TITLE_NEW, "R30 释义卡来源名")
+    replace_once(root, TRANSLATION_STORE, SYS_STORE_INIT_OLD, SYS_STORE_INIT_NEW, "R31 默认注入系统翻译服务")
+    replace_once(root, KEYBOARD_VC, SYS_PREFERRED_GLOSS_OLD, SYS_PREFERRED_GLOSS_NEW, "R32 系统译文优先")
+    replace_once(root, KEYBOARD_VC, SYS_APPLY_ROUTE_OLD, SYS_APPLY_ROUTE_NEW, "R33 键盘注入系统翻译服务")
+    replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_SWITCH_OLD, SYS_SETTINGS_SWITCH_NEW, "R34 设置页补 system 分支")
+    replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_INFO_OLD, SYS_SETTINGS_INFO_NEW, "R35 设置页说明改为系统翻译")
+    replace_once(root, RUST_PREFS, SYS_RUST_DEFAULTS_OLD, SYS_RUST_DEFAULTS_NEW, "R36 候选翻译默认开")
     verify(root)
 
 
