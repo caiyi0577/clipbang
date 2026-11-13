@@ -333,6 +333,10 @@ SYS_SETTINGS_SWITCH_NEW = "      case .off, .account, .system:\n        EmptyVie
 SYS_SETTINGS_INFO_OLD = '    case .off: return "键盘不会把候选词发给任何在线服务；英文释义仍来自离线词库。\\n\\n" + general'
 SYS_SETTINGS_INFO_NEW = '    case .off, .system: return "候选词由 iOS 系统翻译在这台设备上翻译，原文和译文都不离开设备。需先在「设置 → 翻译」下载简体中文与目标语言。\\n\\n" + general'
 
+# 设置页要用 TranslationSession 做「测试」，必须 import Translation（键盘扩展那份有自己的 import）。
+SYS_SETTINGS_IMPORT_OLD = "import SwiftUI\n\n/// 「翻译服务」: which service fills candidate glosses"
+SYS_SETTINGS_IMPORT_NEW = "import SwiftUI\nimport Translation\n\n/// 「翻译服务」: which service fills candidate glosses"
+
 SYS_RUST_DEFAULTS_OLD = """            candidate_translations: false,
             candidate_translation_scope: CandidateTranslationScope::Highlighted,
             candidate_english_gloss: true,"""
@@ -489,6 +493,7 @@ def verify(root: Path) -> None:
     assert "case offline, account, tencent, niutrans, custom, ai, system" in gcard
     assert "candidate_translations: true," in rust
     assert 'TranslationSession(' in tsettings and 'response.targetText' in tsettings
+    assert "import Translation" in tsettings
 
     print("=== trim summary: Apple 系统翻译 ===", flush=True)
     print("  TranslationSession 设备端翻译，原文译文不出设备、零联网", flush=True)
@@ -536,6 +541,7 @@ def main() -> None:
     replace_once(root, KEYBOARD_VC, SYS_APPLY_ROUTE_OLD, SYS_APPLY_ROUTE_NEW, "R33 键盘注入系统翻译服务")
     replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_SWITCH_OLD, SYS_SETTINGS_SWITCH_NEW, "R34 设置页补 system 分支")
     replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_INFO_OLD, SYS_SETTINGS_INFO_NEW, "R35 设置页说明改为系统翻译")
+    replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_IMPORT_OLD, SYS_SETTINGS_IMPORT_NEW, "R35b 设置页 import Translation")
     replace_once(root, RUST_PREFS, SYS_RUST_DEFAULTS_OLD, SYS_RUST_DEFAULTS_NEW, "R36 候选翻译默认开")
     replace_once(root, TRANSLATION_SETTINGS, SYS_TEST_OLD, SYS_TEST_NEW, "R37 测试按钮改走系统翻译")
     verify(root)
