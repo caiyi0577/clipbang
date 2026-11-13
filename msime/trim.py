@@ -446,6 +446,29 @@ UI_ON_ACCENT_OLD = """  static let onAccent = Color(uiColor: UIColor { traits in
   })"""
 UI_ON_ACCENT_NEW = """  static let onAccent = Color(uiColor: onForestUIColor)"""
 
+UI_ACCENT_SYS_OLD = """  // 文字、图标、选中态和开关用的强调色：固定品牌绿 #2C7A4B / #5FBF84。App 界面不再随季节换色（四季色只保留在键盘皮肤里）。
+  static let accentUIColor = forestUIColor"""
+UI_ACCENT_SYS_NEW = """  // 文字、图标、选中态和开关用的强调色：iOS 系统强调色（systemBlue #007AFF / #0A84FF）。
+  static let accentUIColor = UIColor.systemBlue"""
+
+UI_ON_ACCENT_SYS_OLD = """  static let onAccent = Color(uiColor: onForestUIColor)"""
+UI_ON_ACCENT_SYS_NEW = """  // systemBlue 填充上的文字：两种模式都是白色（Apple 自家蓝色按钮的标准做法）。
+  static let onAccent = Color.white"""
+
+UI_ACCENT_SOFT_SYS_OLD = """  static let accentSoft = Color(uiColor: UIColor { traits in
+    return traits.userInterfaceStyle == .dark
+      ? UIColor(red: 95 / 255, green: 191 / 255, blue: 132 / 255, alpha: 0.26)
+      : UIColor(red: 44 / 255, green: 122 / 255, blue: 75 / 255, alpha: 0.14)
+  })"""
+UI_ACCENT_SOFT_SYS_NEW = """  static let accentSoft = Color(uiColor: UIColor { traits in
+    UIColor.systemBlue
+      .resolvedColor(with: traits)
+      .withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.26 : 0.14)
+  })"""
+
+UI_FOREST_COMMENT_OLD = """  // 经典品牌强调色 #2C7A4B / #5FBF84：应用主题解析不出时作为 `accentUIColor` 的回退，也用在需要固定品牌绿的地方。"""
+UI_FOREST_COMMENT_NEW = """  // 经典品牌强调色 #2C7A4B / #5FBF84：用于键盘原生皮肤、标志等固定品牌绿的地方（App 界面强调色已改用系统蓝）。"""
+
 UI_CANVAS_OLD = """  // 页面背景：季节 bg；经典值 #F2F2F7 / #000。
   static let canvasUIColor = UIColor { traits in
     if let palette = palette(traits) { return palette.background }
@@ -656,7 +679,10 @@ def verify(root: Path) -> None:
     theme_file = read(root, THEME_FILE)
     kit = read(root, DESIGN_KIT)
 
-    assert "static let accentUIColor = forestUIColor" in theme_file, "强调色未固定为品牌绿"
+    assert "static let accentUIColor = UIColor.systemBlue" in theme_file, "强调色未改用系统蓝"
+    assert "static let onAccent = Color.white" in theme_file, "蓝底前景未改白色"
+    assert "UIColor.systemBlue" in theme_file and "withAlphaComponent" in theme_file, "着色底未跟随系统蓝"
+    assert "static let accentUIColor = forestUIColor" not in theme_file, "强调色仍是品牌绿"
     assert "UIColor.systemGroupedBackground" in theme_file, "页面背景未系统化"
     assert "UIColor.secondarySystemGroupedBackground" in theme_file, "卡片背景未系统化"
     assert "static let hairUIColor = UIColor.separator" in theme_file, "分隔线未系统化"
@@ -674,7 +700,7 @@ def verify(root: Path) -> None:
 
     print("=== trim summary: iOS 化 ===", flush=True)
     print("  卡片圆角 26→10，行高 52→44，行内边距 20→16", flush=True)
-    print("  页面/卡片/分隔线/次要文字 → iOS 系统分组色；强调色固定水杉绿", flush=True)
+    print("  页面/卡片/分隔线/次要文字 → iOS 系统分组色；强调色用系统蓝（systemBlue）", flush=True)
     print("  语义字体 .body/.callout/.footnote，支持动态字体；键盘皮肤四季色不受影响", flush=True)
     print("TRIM_OK", flush=True)
 
@@ -721,6 +747,10 @@ def main() -> None:
     replace_once(root, THEME_FILE, UI_ACCENT_OLD, UI_ACCENT_NEW, "R39 强调色固定品牌绿")
     replace_once(root, THEME_FILE, UI_ON_ACCENT_OLD, UI_ON_ACCENT_NEW, "R39b 强调色前景固定")
     replace_once(root, THEME_FILE, UI_ACCENT_SOFT_OLD, UI_ACCENT_SOFT_NEW, "R40 着色底固定经典值")
+    replace_once(root, THEME_FILE, UI_ACCENT_SYS_OLD, UI_ACCENT_SYS_NEW, "R40a 强调色改用 iOS 系统蓝")
+    replace_once(root, THEME_FILE, UI_ON_ACCENT_SYS_OLD, UI_ON_ACCENT_SYS_NEW, "R40b 蓝底前景改白色")
+    replace_once(root, THEME_FILE, UI_ACCENT_SOFT_SYS_OLD, UI_ACCENT_SOFT_SYS_NEW, "R40c 着色底改系统蓝透明版")
+    replace_once(root, THEME_FILE, UI_FOREST_COMMENT_OLD, UI_FOREST_COMMENT_NEW, "R40d 品牌绿注释更新")
     replace_once(root, THEME_FILE, UI_CANVAS_OLD, UI_CANVAS_NEW, "R41 页面背景系统化")
     replace_once(root, THEME_FILE, UI_SURFACE_OLD, UI_SURFACE_NEW, "R42 卡片背景系统化")
     replace_once(root, THEME_FILE, UI_HAIR_OLD, UI_HAIR_NEW, "R43 分隔线系统化")
