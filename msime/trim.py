@@ -340,6 +340,68 @@ SYS_RUST_DEFAULTS_NEW = """            candidate_translations: true,
             candidate_translation_scope: CandidateTranslationScope::Highlighted,
             candidate_english_gloss: true,"""
 
+# 设置页「测试」按钮仍走旧的 HTTP 探针（TranslationProviderClient），而 system 路由
+# 在客户端 switch 里是空操作，必然报「测试失败：请检查凭据、地址与网络」。
+# 改成直接调用系统翻译，失败时给出「去系统设置下载语言包」的明确指引。
+SYS_TEST_OLD = """  private func test() {
+    var document: [String: Any] = [:]
+    write(into: &document)
+    let route = TranslationProviderPreference.route(in: document)
+    guard route != .none, route != .account else { status = "凭据不完整。"; return }
+    testing = true
+    status = nil
+    let id = testGeneration.begin()
+    operation = Task {
+      let result = await TranslationProviderClient().translate(words: ["你好"], target: "EN", route: route)
+      guard testGeneration.isCurrent(id) else { return }
+      testing = false
+      operation = nil
+      if let gloss = result.first ?? nil {
+        status = "测试成功：你好 → \\(gloss)"
+      } else {
+        status = "测试失败：请检查凭据、地址与网络。"
+      }
+    }
+  }"""
+SYS_TEST_NEW = """  private func test() {
+    var document: [String: Any] = [:]
+    write(into: &document)
+    let route = TranslationProviderPreference.route(in: document)
+    if #available(iOS 26.0, *) {
+      // 定制版：候选释义走 Apple 设备端系统翻译，测试也不再发任何网络请求。
+      testing = true
+      status = nil
+      let id = testGeneration.begin()
+      operation = Task {
+        let result = try? await SystemCandidateTranslationService().translate(words: ["你好"], target: "EN")
+        guard testGeneration.isCurrent(id) else { return }
+        testing = false
+        operation = nil
+        if let gloss = result?.first, !gloss.isEmpty {
+          status = "测试成功：你好 → \\(gloss)"
+        } else {
+          status = "测试失败：请先在「设置 → 翻译 → 已下载的语言」下载 简体中文 与 English，并保持设备联网（首次下载需要）"
+        }
+      }
+      return
+    }
+    guard route != .none, route != .account else { status = "凭据不完整。"; return }
+    testing = true
+    status = nil
+    let id = testGeneration.begin()
+    operation = Task {
+      let result = await TranslationProviderClient().translate(words: ["你好"], target: "EN", route: route)
+      guard testGeneration.isCurrent(id) else { return }
+      testing = false
+      operation = nil
+      if let gloss = result.first ?? nil {
+        status = "测试成功：你好 → \\(gloss)"
+      } else {
+        status = "测试失败：请检查凭据、地址与网络。"
+      }
+    }
+  }"""
+
 
 def verify(root: Path) -> None:
     """把裁剪结果打进 CI 日志，便于事后核对这一轮到底生效了没有。"""
@@ -413,6 +475,7 @@ def verify(root: Path) -> None:
     assert "case .off, .account, .system:" in tsettings
     assert "case offline, account, tencent, niutrans, custom, ai, system" in gcard
     assert "candidate_translations: true," in rust
+    assert 'SystemCandidateTranslationService().translate(words: ["你好"], target: "EN")' in tsettings
 
     print("=== trim summary: Apple 系统翻译 ===", flush=True)
     print("  TranslationSession 设备端翻译，原文译文不出设备、零联网", flush=True)
@@ -461,6 +524,7 @@ def main() -> None:
     replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_SWITCH_OLD, SYS_SETTINGS_SWITCH_NEW, "R34 设置页补 system 分支")
     replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_INFO_OLD, SYS_SETTINGS_INFO_NEW, "R35 设置页说明改为系统翻译")
     replace_once(root, RUST_PREFS, SYS_RUST_DEFAULTS_OLD, SYS_RUST_DEFAULTS_NEW, "R36 候选翻译默认开")
+    replace_once(root, TRANSLATION_SETTINGS, SYS_TEST_OLD, SYS_TEST_NEW, "R37 测试按钮改走系统翻译")
     verify(root)
 
 
