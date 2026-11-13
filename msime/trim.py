@@ -489,11 +489,12 @@ def verify(root: Path) -> None:
     assert "if #available(iOS 26.0, *) { return .system }" in tpref
     assert "SystemCandidateTranslationService()" in tstore
     assert 'SystemCandidateTranslationService(), scope: "system-apple"' in kvc
-    assert "case .off, .account, .system:" in tsettings
     assert "case offline, account, tencent, niutrans, custom, ai, system" in gcard
     assert "candidate_translations: true," in rust
     assert 'TranslationSession(' in tsettings and 'response.targetText' in tsettings
     assert "import Translation" in tsettings
+    assert "Picker(" not in tsettings and "请检查凭据、地址与网络" not in tsettings
+    assert "系统翻译（设备端）" in tsettings
 
     print("=== trim summary: Apple 系统翻译 ===", flush=True)
     print("  TranslationSession 设备端翻译，原文译文不出设备、零联网", flush=True)
@@ -539,11 +540,8 @@ def main() -> None:
     replace_once(root, TRANSLATION_STORE, SYS_STORE_INIT_OLD, SYS_STORE_INIT_NEW, "R31 默认注入系统翻译服务")
     replace_once(root, KEYBOARD_VC, SYS_PREFERRED_GLOSS_OLD, SYS_PREFERRED_GLOSS_NEW, "R32 系统译文优先")
     replace_once(root, KEYBOARD_VC, SYS_APPLY_ROUTE_OLD, SYS_APPLY_ROUTE_NEW, "R33 键盘注入系统翻译服务")
-    replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_SWITCH_OLD, SYS_SETTINGS_SWITCH_NEW, "R34 设置页补 system 分支")
-    replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_INFO_OLD, SYS_SETTINGS_INFO_NEW, "R35 设置页说明改为系统翻译")
-    replace_once(root, TRANSLATION_SETTINGS, SYS_SETTINGS_IMPORT_OLD, SYS_SETTINGS_IMPORT_NEW, "R35b 设置页 import Translation")
     replace_once(root, RUST_PREFS, SYS_RUST_DEFAULTS_OLD, SYS_RUST_DEFAULTS_NEW, "R36 候选翻译默认开")
-    replace_once(root, TRANSLATION_SETTINGS, SYS_TEST_OLD, SYS_TEST_NEW, "R37 测试按钮改走系统翻译")
+    overlay(root, TRANSLATION_SETTINGS, "TranslationProviderSettingsView.swift", "R34 设置页锁定系统翻译（移除全部在线服务选项与凭据输入）")
     verify(root)
 
 
