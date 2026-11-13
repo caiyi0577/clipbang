@@ -422,8 +422,13 @@ SYS_TEST_NEW = """  private func test() {
 
 # ---------------------------------------------------------------------------
 # iOS 化：App 界面回归系统观感。只改设计 token 的内部实现（API 不变），
-# 30 个使用 DesignKit 的页面自动生效；键盘皮肤（SeasonKeyboardTokens /
-# GlobalTheme）不动，四季色只保留在键盘里。
+# 30 个使用 DesignKit 的页面自动生效。
+#
+# 键盘走的是另一条取色链路：KeyboardTheme → client-services 解析出的主题
+# 目录 / AppThemePalette 季节 seed / Native·System·Season 三组 Swift 兜底
+# token，完全不读 MetasequoiaTheme。下面 KB_* 规则按皮肤规则在源头统一品牌色：
+# 只替换 accent / onAccent / candidateAccent / accentSoft 这些品牌槽位，
+# 各皮肤自己的背景、按键、文字、分隔线公式保留；自定义皮肤 design 分支不动。
 # ---------------------------------------------------------------------------
 THEME_FILE = f"{IOS}/SharedUI/core/MetasequoiaTheme.swift"
 DESIGN_KIT = f"{IOS}/App/Sources/app/DesignKit.swift"
@@ -595,6 +600,177 @@ UI_EXT_LINK_NEW = """      .font(.system(size: 13, weight: .semibold))
       .foregroundStyle(MetasequoiaTheme.sub)"""
 
 
+# ---------------------------------------------------------------------------
+# 键盘皮肤品牌色：iOS 系统蓝。
+#
+# 取色链路（上游注释在 KeyboardTheme.swift 文件头）：
+#   design（用户自定义皮肤，优先，不动）
+#     > drawnPalette（Rust 主题目录解析出的 palette，或 SeasonKeyboardTokens 季节配色）
+#     > native / 经典兜底（SystemKeyboardTokens / NativeKeyboardTokens）
+#   CandidatePalette 在 followsDesktop 时还会用 Rust 的 candidate.accent 覆盖。
+# 所以要在 drawnPalette 收口一处，再把三组兜底 token 与主题预览色同步改掉，
+# 才能让 system / native / 内置主题 / 跟随系统 / 候选条都不留绿色。
+# ---------------------------------------------------------------------------
+KB_GLOBAL_THEME = f"{IOS}/SharedUI/core/GlobalTheme.swift"
+KB_KEYBOARD_THEME = f"{IOS}/SharedUI/keyboard/KeyboardTheme.swift"
+KB_CANDIDATE_PALETTE = f"{IOS}/SharedUI/candidate/CandidatePalette.swift"
+
+KB_NATIVE_OLD = """  /// 品牌强调色：输入中的回车键、开启态磁贴和胶囊。候选条首选的字色另见 `candidateAccent`。
+  static let accent = adaptiveColor(0x2C7A4B, 0x5FBF84)
+  static let accentSoft = adaptiveColor(0x2C7A4B, 0x5FBF84, lightAlpha: 0.14, darkAlpha: 0.26)
+  /// 触屏候选条首选的字色。浅色的 `accent` 画在键盘底色 `#D1D4DB` 上只有约 3.5:1，换成同一色相在 OKLCH 里降低明度的 `#15683B`（约 4.6:1，候选底片 `#FFFFFF` 上约 6.8:1）；深色不变。
+  static let candidateAccent = adaptiveColor(0x15683B, 0x5FBF84)"""
+KB_NATIVE_NEW = """  /// 键盘品牌强调色：与 App 界面同用 iOS 系统蓝（浅色 #007AFF / 深色 #0A84FF）。
+  static let accent = UIColor.systemBlue
+  static let accentSoft = UIColor { traits in
+    UIColor.systemBlue.resolvedColor(with: traits)
+      .withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.26 : 0.14)
+  }
+  /// 候选条首选字色也用系统蓝；系统蓝在键盘底色上对比度足够，不再需要加深绿 `#15683B`。
+  static let candidateAccent = UIColor.systemBlue"""
+
+KB_SYSTEM_OLD = """  /// 原生皮肤以低饱和水杉绿强调回车、候选和激活状态，不跟季节。
+  static let accent = adaptiveColor(0x32664B, 0x8AC4A2)
+  /// 水杉绿填充上的文字：浅色用白色，深色用黑色。
+  static let onAccent = adaptiveColor(0xFFFFFF, 0x000000)
+  static let accentSoft = adaptiveColor(0x32664B, 0x8AC4A2, lightAlpha: 0.14, darkAlpha: 0.26)
+  /// 工具栏 logo 的圆底：水杉绿混入系统卡片底，不跟季节。
+  static let logoCircle = UIColor { traits in
+    let dark = traits.userInterfaceStyle == .dark
+    return AppThemePalette.mix(accent.resolvedColor(with: traits), dark ? 22 : 14, rgbColor(dark ? 0x1C1C1E : 0xFFFFFF))
+  }
+  /// 圆底里的 logo 图形使用深绿，保留白色折线描边的对比度。
+  static let logoMark = UIColor { traits in
+    AppThemePalette.mix(accent.resolvedColor(with: traits), traits.userInterfaceStyle == .dark ? 38 : 82, .black)
+  }"""
+KB_SYSTEM_NEW = """  /// 原生皮肤同样用 iOS 系统蓝强调回车、候选和激活状态，不跟季节。
+  static let accent = UIColor.systemBlue
+  /// 系统蓝填充上的文字：两种模式都用白色。
+  static let onAccent = UIColor.white
+  static let accentSoft = UIColor { traits in
+    UIColor.systemBlue.resolvedColor(with: traits)
+      .withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.26 : 0.14)
+  }
+  /// 工具栏 logo 的圆底：系统蓝混入系统卡片底，不跟季节。
+  static let logoCircle = UIColor { traits in
+    let dark = traits.userInterfaceStyle == .dark
+    return AppThemePalette.mix(accent.resolvedColor(with: traits), dark ? 22 : 14, rgbColor(dark ? 0x1C1C1E : 0xFFFFFF))
+  }
+  /// 圆底里的 logo 图形用系统蓝加深，保留白色折线描边的对比度。
+  static let logoMark = UIColor { traits in
+    AppThemePalette.mix(accent.resolvedColor(with: traits), traits.userInterfaceStyle == .dark ? 38 : 82, .black)
+  }"""
+
+KB_SEASON_PALETTE_OLD = """      accent: UIColor { traits in
+        AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)?.accent
+          ?? NativeKeyboardTokens.accent.resolvedColor(with: traits)
+      },
+      // Rust 的 `on_accent`：浅色一般是白色，秋杉的银杏金上是深色；深色是 mix(accent 25%, #000)，因为白色压在深色模式偏浅的强调色上对比度不到 2:1。没有解析出季节时浅色白、深色黑。
+      onAccent: UIColor { traits in
+        let dark = traits.userInterfaceStyle == .dark
+        return AppThemePalette.resolved(dark: dark)?.onAccent ?? (dark ? .black : .white)
+      },
+      // 首选候选用 Rust 给的 `candidate_accent`：浅色是加深到 AA 的强调色，深色就是强调色。
+      candidateAccent: UIColor { traits in
+        AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)?.candidateAccent
+          ?? NativeKeyboardTokens.candidateAccent.resolvedColor(with: traits)
+      })"""
+KB_SEASON_PALETTE_NEW = """      accent: UIColor.systemBlue,
+      // 系统蓝填充上的文字统一白色，不再跟季节的 on_accent 走。
+      onAccent: UIColor.white,
+      // 候选首选字色也用系统蓝。
+      candidateAccent: UIColor.systemBlue)"""
+
+KB_SEASON_MIX_OLD = """      let accent = season.accent
+      let made = dark"""
+KB_SEASON_MIX_NEW = """      // 键盘底板与功能键的混色源也统一为系统蓝，四季绿不再渗进整套键盘。
+      let accent = rgbColor(dark ? 0x0A84FF : 0x007AFF)
+      let made = dark"""
+
+KB_PREVIEW_OLD = """        guard let background = ThemeColor.parse(preview["background"]), let panel = ThemeColor.parse(preview["panel"]),
+              let accent = ThemeColor.parse(preview["accent"]), let text = ThemeColor.parse(preview["text"]) else { return nil }
+        return GlobalThemeEntry.Preview(background: background, panel: panel, accent: accent, text: text)"""
+KB_PREVIEW_NEW = """        guard let background = ThemeColor.parse(preview["background"]), let panel = ThemeColor.parse(preview["panel"]),
+              let text = ThemeColor.parse(preview["text"]) else { return nil }
+        return GlobalThemeEntry.Preview(background: background, panel: panel, accent: UIColor.systemBlue, text: text)"""
+
+KB_NATIVE_PALETTE_OLD = """  private static let nativePalette = ThemeKeyboardPalette(
+    background: NativeKeyboardTokens.background, key: NativeKeyboardTokens.key, functionKey: NativeKeyboardTokens.functionKey,
+    text: NativeKeyboardTokens.text, secondary: NativeKeyboardTokens.secondary, accent: NativeKeyboardTokens.accent,
+    onAccent: UIColor { $0.userInterfaceStyle == .dark ? .black : .white },
+    candidateAccent: NativeKeyboardTokens.candidateAccent)"""
+KB_NATIVE_PALETTE_NEW = """  private static let nativePalette = ThemeKeyboardPalette(
+    background: NativeKeyboardTokens.background, key: NativeKeyboardTokens.key, functionKey: NativeKeyboardTokens.functionKey,
+    text: NativeKeyboardTokens.text, secondary: NativeKeyboardTokens.secondary, accent: UIColor.systemBlue,
+    onAccent: UIColor.white,
+    candidateAccent: UIColor.systemBlue)"""
+
+KB_DRAWN_OLD = """  private var drawnPalette: ThemeKeyboardPalette? {
+    guard let palette, let darkPalette else { return palette }
+    func byMode(_ light: UIColor, _ dark: UIColor) -> UIColor {
+      UIColor { traits in (traits.userInterfaceStyle == .dark ? dark : light).resolvedColor(with: traits) }
+    }
+    return ThemeKeyboardPalette(
+      background: byMode(palette.background, darkPalette.background), key: byMode(palette.key, darkPalette.key),
+      functionKey: byMode(palette.functionKey, darkPalette.functionKey), text: byMode(palette.text, darkPalette.text),
+      secondary: byMode(palette.secondary, darkPalette.secondary), accent: byMode(palette.accent, darkPalette.accent),
+      onAccent: byMode(palette.onAccent, darkPalette.onAccent),
+      candidateAccent: byMode(palette.candidateAccent ?? palette.accent, darkPalette.candidateAccent ?? darkPalette.accent))
+  }"""
+KB_DRAWN_NEW = """  private var drawnPalette: ThemeKeyboardPalette? {
+    guard let palette, let darkPalette else { return self.palette.map { Self.branded($0) } }
+    func byMode(_ light: UIColor, _ dark: UIColor) -> UIColor {
+      UIColor { traits in (traits.userInterfaceStyle == .dark ? dark : light).resolvedColor(with: traits) }
+    }
+    return Self.branded(ThemeKeyboardPalette(
+      background: byMode(palette.background, darkPalette.background), key: byMode(palette.key, darkPalette.key),
+      functionKey: byMode(palette.functionKey, darkPalette.functionKey), text: byMode(palette.text, darkPalette.text),
+      secondary: byMode(palette.secondary, darkPalette.secondary), accent: byMode(palette.accent, darkPalette.accent),
+      onAccent: byMode(palette.onAccent, darkPalette.onAccent),
+      candidateAccent: byMode(palette.candidateAccent ?? palette.accent, darkPalette.candidateAccent ?? darkPalette.accent)))
+  }
+
+  /// 所有非自定义皮肤的键盘品牌色统一为 iOS 系统蓝，背景、按键、文字仍按各自皮肤绘制。
+  /// 只替换 `drawnPalette` 的返回值：存储属性 `palette` 不变，`drawsNativeBackground`
+  /// 与 `SeasonKeyboardTokens.palette` 的相等比较照旧；各 getter 里 `design` 分支优先，
+  /// 用户自己设计的皮肤与候选皮肤包不受影响。
+  private static func branded(_ palette: ThemeKeyboardPalette) -> ThemeKeyboardPalette {
+    ThemeKeyboardPalette(
+      background: palette.background, key: palette.key, functionKey: palette.functionKey,
+      text: palette.text, secondary: palette.secondary, accent: UIColor.systemBlue,
+      onAccent: UIColor.white, candidateAccent: UIColor.systemBlue)
+  }"""
+
+KB_ACTION_FG_OLD = """  var actionForeground: UIColor {
+    if let design { return CustomKeyboardSkin.color(CustomKeyboardSkin.readableText(on: design.actionBackground)) }
+    if let palette = drawnPalette { return palette.onAccent }
+    if isNative { return SystemKeyboardTokens.onAccent }
+    return UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
+  }"""
+KB_ACTION_FG_NEW = """  var actionForeground: UIColor {
+    if let design { return CustomKeyboardSkin.color(CustomKeyboardSkin.readableText(on: design.actionBackground)) }
+    if let palette = drawnPalette { return palette.onAccent }
+    if isNative { return SystemKeyboardTokens.onAccent }
+    return UIColor.white
+  }"""
+
+KB_ON_ACCENT_OLD = """  var onAccent: UIColor {
+    if let design { return CustomKeyboardSkin.color(CustomKeyboardSkin.readableText(on: design.accent)) }
+    if let palette = drawnPalette { return palette.onAccent }
+    if isNative { return SystemKeyboardTokens.onAccent }
+    return UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
+  }"""
+KB_ON_ACCENT_NEW = """  var onAccent: UIColor {
+    if let design { return CustomKeyboardSkin.color(CustomKeyboardSkin.readableText(on: design.accent)) }
+    if let palette = drawnPalette { return palette.onAccent }
+    if isNative { return SystemKeyboardTokens.onAccent }
+    return UIColor.white
+  }"""
+
+KB_CANDIDATE_ACCENT_OLD = """      accent: candidate?.accent ?? keyboard.accent,"""
+KB_CANDIDATE_ACCENT_NEW = """      accent: keyboard.accent,"""
+
+
 def verify(root: Path) -> None:
     """把裁剪结果打进 CI 日志，便于事后核对这一轮到底生效了没有。"""
     offered = read(root, PREF)
@@ -698,10 +874,31 @@ def verify(root: Path) -> None:
     assert ".font(.callout).foregroundStyle(MetasequoiaTheme.sub)" in kit, "行值未改语义字体"
     assert "font(.system(size: 17))" not in kit, "固定 17pt 标题残留"
 
+    global_theme = read(root, KB_GLOBAL_THEME)
+    keyboard_theme = read(root, KB_KEYBOARD_THEME)
+    candidate_palette = read(root, KB_CANDIDATE_PALETTE)
+
+    assert global_theme.count("static let accent = UIColor.systemBlue") == 2, "键盘兜底 token 未全部改系统蓝"
+    for gone in ("adaptiveColor(0x2C7A4B", "adaptiveColor(0x32664B", "adaptiveColor(0x15683B"):
+        assert gone not in global_theme, f"键盘 token 仍有品牌绿 {gone}"
+    assert "let accent = rgbColor(dark ? 0x0A84FF : 0x007AFF)" in global_theme, "季节混色源仍是绿"
+    assert "accent: UIColor.systemBlue, text: text" in global_theme, "皮肤选择器预览色仍是绿"
+    assert "private static func branded(" in keyboard_theme, "drawnPalette 未收口"
+    assert "self.palette.map { Self.branded($0) }" in keyboard_theme, "通用明暗分支未收口"
+    assert "accent: UIColor.systemBlue," in keyboard_theme, "nativePalette 未改系统蓝"
+    assert "return UIColor { $0.userInterfaceStyle == .dark ? .black : .white }" not in keyboard_theme, "蓝底黑字兜底仍在"
+    assert "accent: keyboard.accent," in candidate_palette, "候选条仍会被 Rust 绿色 accent 覆盖"
+
     print("=== trim summary: iOS 化 ===", flush=True)
     print("  卡片圆角 26→10，行高 52→44，行内边距 20→16", flush=True)
     print("  页面/卡片/分隔线/次要文字 → iOS 系统分组色；强调色用系统蓝（systemBlue）", flush=True)
-    print("  语义字体 .body/.callout/.footnote，支持动态字体；键盘皮肤四季色不受影响", flush=True)
+    print("  语义字体 .body/.callout/.footnote，支持动态字体", flush=True)
+    print("=== trim summary: 键盘皮肤品牌色 ===", flush=True)
+    print("  键盘走 KeyboardTheme 独立取色链路，不读 MetasequoiaTheme；品牌色在源头统一", flush=True)
+    print("  Native/System/Season 三组兜底 token、季节混色源、主题预览色 → 系统蓝", flush=True)
+    print("  drawnPalette 收口：system/native/内置主题/跟随系统的 accent·onAccent·候选首选统一",
+          flush=True)
+    print("  各皮肤背景/按键/文字公式保留；自定义皮肤 design 与候选皮肤包不动", flush=True)
     print("TRIM_OK", flush=True)
 
 
@@ -771,6 +968,16 @@ def main() -> None:
     replace_once(root, DESIGN_KIT, UI_INLINE_BTN_OLD, UI_INLINE_BTN_NEW, "R58 行内按钮语义字体")
     replace_once(root, DESIGN_KIT, UI_CHEVRON_OLD, UI_CHEVRON_NEW, "R59 箭头颜色对齐系统")
     replace_once(root, DESIGN_KIT, UI_EXT_LINK_OLD, UI_EXT_LINK_NEW, "R60 外链图标颜色对齐系统")
+    replace_once(root, KB_GLOBAL_THEME, KB_NATIVE_OLD, KB_NATIVE_NEW, "R61 经典兜底键盘品牌色改系统蓝")
+    replace_once(root, KB_GLOBAL_THEME, KB_SYSTEM_OLD, KB_SYSTEM_NEW, "R62 原生皮肤品牌色与 logo 改系统蓝")
+    replace_once(root, KB_GLOBAL_THEME, KB_SEASON_PALETTE_OLD, KB_SEASON_PALETTE_NEW, "R63 季节配色品牌槽位改系统蓝")
+    replace_once(root, KB_GLOBAL_THEME, KB_SEASON_MIX_OLD, KB_SEASON_MIX_NEW, "R64 键盘底板混色源改系统蓝")
+    replace_once(root, KB_GLOBAL_THEME, KB_PREVIEW_OLD, KB_PREVIEW_NEW, "R65 皮肤选择器预览色改系统蓝")
+    replace_once(root, KB_KEYBOARD_THEME, KB_NATIVE_PALETTE_OLD, KB_NATIVE_PALETTE_NEW, "R66 原生兜底配色改系统蓝")
+    replace_once(root, KB_KEYBOARD_THEME, KB_DRAWN_OLD, KB_DRAWN_NEW, "R67 drawnPalette 收口所有主题品牌色")
+    replace_once(root, KB_KEYBOARD_THEME, KB_ACTION_FG_OLD, KB_ACTION_FG_NEW, "R68 回车键兜底前景改白色")
+    replace_once(root, KB_KEYBOARD_THEME, KB_ON_ACCENT_OLD, KB_ON_ACCENT_NEW, "R69 强调色填充兜底前景改白色")
+    replace_once(root, KB_CANDIDATE_PALETTE, KB_CANDIDATE_ACCENT_OLD, KB_CANDIDATE_ACCENT_NEW, "R70 候选条首选字色跟随键盘品牌色")
     verify(root)
 
 
