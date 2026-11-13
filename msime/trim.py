@@ -420,6 +420,158 @@ SYS_TEST_NEW = """  private func test() {
   }"""
 
 
+# ---------------------------------------------------------------------------
+# iOS 化：App 界面回归系统观感。只改设计 token 的内部实现（API 不变），
+# 30 个使用 DesignKit 的页面自动生效；键盘皮肤（SeasonKeyboardTokens /
+# GlobalTheme）不动，四季色只保留在键盘里。
+# ---------------------------------------------------------------------------
+THEME_FILE = f"{IOS}/SharedUI/core/MetasequoiaTheme.swift"
+DESIGN_KIT = f"{IOS}/App/Sources/app/DesignKit.swift"
+
+UI_ACCENT_OLD = """  // 文字、图标、选中态和开关用的强调色：季节强调色，回退为经典 #2C7A4B / #5FBF84。
+  static let accentUIColor = UIColor { traits in
+    palette(traits)?.accent ?? forestUIColor.resolvedColor(with: traits)
+  }"""
+UI_ACCENT_NEW = """  // 文字、图标、选中态和开关用的强调色：固定品牌绿 #2C7A4B / #5FBF84。App 界面不再随季节换色（四季色只保留在键盘皮肤里）。
+  static let accentUIColor = forestUIColor"""
+
+UI_ACCENT_SOFT_OLD = """  static let accentSoft = Color(uiColor: UIColor { traits in
+    if let palette = palette(traits) { return palette.accentSoft }
+    return traits.userInterfaceStyle == .dark"""
+UI_ACCENT_SOFT_NEW = """  static let accentSoft = Color(uiColor: UIColor { traits in
+    return traits.userInterfaceStyle == .dark"""
+
+UI_ON_ACCENT_OLD = """  static let onAccent = Color(uiColor: UIColor { traits in
+    palette(traits)?.onAccent ?? onForestUIColor.resolvedColor(with: traits)
+  })"""
+UI_ON_ACCENT_NEW = """  static let onAccent = Color(uiColor: onForestUIColor)"""
+
+UI_CANVAS_OLD = """  // 页面背景：季节 bg；经典值 #F2F2F7 / #000。
+  static let canvasUIColor = UIColor { traits in
+    if let palette = palette(traits) { return palette.background }
+    return traits.userInterfaceStyle == .dark ? .black : UIColor(red: 242 / 255, green: 242 / 255, blue: 247 / 255, alpha: 1)
+  }"""
+UI_CANVAS_NEW = """  // 页面背景：iOS 系统分组背景（浅色 #F2F2F7，深色 #000）。
+  static let canvasUIColor = UIColor.systemGroupedBackground"""
+
+UI_SURFACE_OLD = """  // 卡片和行背景：季节 card；经典值 #FFF / #1C1C1E。
+  static let surfaceUIColor = UIColor { traits in
+    if let palette = palette(traits) { return palette.card }
+    return traits.userInterfaceStyle == .dark ? UIColor(red: 28 / 255, green: 28 / 255, blue: 30 / 255, alpha: 1) : .white
+  }"""
+UI_SURFACE_NEW = """  // 卡片和行背景：iOS 系统二级分组背景（浅色白，深色 #1C1C1E）。
+  static let surfaceUIColor = UIColor.secondarySystemGroupedBackground"""
+
+UI_HAIR_OLD = """  // 细线和分隔线：浅色下用季节 hair（经典：系统分隔线色）；深色下固定为 rgba(84,84,88,.6)，按 iOS 设计稿覆盖 Rust 的深色 hair。
+  static let hairUIColor = UIColor { traits in
+    if traits.userInterfaceStyle == .dark { return UIColor(red: 84 / 255, green: 84 / 255, blue: 88 / 255, alpha: 0.6) }
+    return palette(traits)?.hair ?? UIColor.separator.resolvedColor(with: traits)
+  }"""
+UI_HAIR_NEW = """  // 细线和分隔线：iOS 系统分隔线色。
+  static let hairUIColor = UIColor.separator"""
+
+UI_SUB_OLD = """  // 次要文字、数值和箭头：#8A8A8E / #8E8E93。
+  static let subUIColor = UIColor { traits in
+    traits.userInterfaceStyle == .dark
+      ? UIColor(red: 142 / 255, green: 142 / 255, blue: 147 / 255, alpha: 1)
+      : UIColor(red: 138 / 255, green: 138 / 255, blue: 142 / 255, alpha: 1)
+  }"""
+UI_SUB_NEW = """  // 次要文字、数值和箭头：iOS 系统次要标签色。
+  static let subUIColor = UIColor.secondaryLabel"""
+
+UI_RADIUS_OLD = """  // 设置标签页上分组卡片的圆角。
+  static let cardRadius: CGFloat = 26"""
+UI_RADIUS_NEW = """  // 设置标签页上分组卡片的圆角：iOS 分组列表的 10pt（原为 Material 风格的 26pt）。
+  static let cardRadius: CGFloat = 10"""
+
+UI_PALETTE_FN_OLD = """  private static func palette(_ traits: UITraitCollection) -> AppThemePalette.Resolved? {
+    AppThemePalette.resolved(dark: traits.userInterfaceStyle == .dark)
+  }
+
+  static let needle"""
+UI_PALETTE_FN_NEW = """  static let needle"""
+
+UI_SUBTEXT_OLD = """  func designSubtext() -> some View {
+    font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.sub)
+  }"""
+UI_SUBTEXT_NEW = """  func designSubtext() -> some View {
+    font(.footnote).foregroundStyle(MetasequoiaTheme.sub)
+  }"""
+
+UI_ROW_METRICS_OLD = """    .padding(.vertical, 8)
+    .padding(.horizontal, 20)
+    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+    .contentShape(Rectangle())"""
+UI_ROW_METRICS_NEW = """    .padding(.vertical, 8)
+    .padding(.horizontal, 16)
+    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+    .contentShape(Rectangle())"""
+
+UI_TOGGLE_ON_OLD = """      .tint(MetasequoiaTheme.switchOn)
+      .padding(.vertical, 8)
+      .padding(.horizontal, 20)
+      .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)"""
+UI_TOGGLE_ON_NEW = """      .tint(MetasequoiaTheme.switchOn)
+      .padding(.vertical, 8)
+      .padding(.horizontal, 16)
+      .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)"""
+
+UI_TOGGLE_OFF_OLD = """      .opacity(Self.disabledOpacity)
+      .padding(.vertical, 8)
+      .padding(.horizontal, 20)
+      .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)"""
+UI_TOGGLE_OFF_NEW = """      .opacity(Self.disabledOpacity)
+      .padding(.vertical, 8)
+      .padding(.horizontal, 16)
+      .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)"""
+
+UI_GROUP_TITLE_OLD = """          Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle)
+            .accessibilityAddTraits(.isHeader)
+          if let info { DesignInfoTip(text: info, subject: title) }
+        }
+        .padding(.horizontal, 20)"""
+UI_GROUP_TITLE_NEW = """          Text(title).font(.footnote).foregroundStyle(MetasequoiaTheme.groupTitle)
+            .accessibilityAddTraits(.isHeader)
+          if let info { DesignInfoTip(text: info, subject: title) }
+        }
+        .padding(.horizontal, 16)"""
+
+UI_GROUP_FOOTER_OLD = """    Text(text).designSubtext()
+      .fixedSize(horizontal: false, vertical: true)
+      .padding(.horizontal, 20)"""
+UI_GROUP_FOOTER_NEW = """    Text(text).designSubtext()
+      .fixedSize(horizontal: false, vertical: true)
+      .padding(.horizontal, 16)"""
+
+UI_GROUP_HEADER_OLD = """    Text(title).font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.groupTitle).textCase(nil)"""
+UI_GROUP_HEADER_NEW = """    Text(title).font(.footnote).foregroundStyle(MetasequoiaTheme.groupTitle).textCase(nil)"""
+
+UI_INFO_TITLE_FONT_OLD = """  var font: Font = .system(size: 17)"""
+UI_INFO_TITLE_FONT_NEW = """  var font: Font = .body"""
+
+UI_NAV_VALUE_OLD = """          Text(value).font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)"""
+UI_NAV_VALUE_NEW = """          Text(value).font(.callout).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)"""
+
+UI_VALUE_ROW_OLD = """      Text(value).font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)"""
+UI_VALUE_ROW_NEW = """      Text(value).font(.callout).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)"""
+
+UI_SELECT_VALUE_OLD = """        Text(valueTitle).font(.system(size: 16)).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)"""
+UI_SELECT_VALUE_NEW = """        Text(valueTitle).font(.callout).foregroundStyle(MetasequoiaTheme.sub).lineLimit(1)"""
+
+UI_INLINE_BTN_OLD = """          .font(.system(size: 13)).foregroundStyle(MetasequoiaTheme.accent)"""
+UI_INLINE_BTN_NEW = """          .font(.footnote).foregroundStyle(MetasequoiaTheme.accent)"""
+
+UI_CHEVRON_OLD = """  var fontSize: CGFloat = 13
+  var opacity: Double = 0.55"""
+UI_CHEVRON_NEW = """  var fontSize: CGFloat = 13
+  var opacity: Double = 1"""
+
+UI_EXT_LINK_OLD = """      .font(.system(size: 13, weight: .semibold))
+      .foregroundStyle(MetasequoiaTheme.sub.opacity(0.55))"""
+UI_EXT_LINK_NEW = """      .font(.system(size: 13, weight: .semibold))
+      .foregroundStyle(MetasequoiaTheme.sub)"""
+
+
 def verify(root: Path) -> None:
     """把裁剪结果打进 CI 日志，便于事后核对这一轮到底生效了没有。"""
     offered = read(root, PREF)
@@ -500,6 +652,30 @@ def verify(root: Path) -> None:
     print("  TranslationSession 设备端翻译，原文译文不出设备、零联网", flush=True)
     print("  前提：系统「设置 → 翻译」已下载简体中文与目标语言", flush=True)
     print("  离线表保留为语言包未装时的兜底；在线服务不再被选中", flush=True)
+
+    theme_file = read(root, THEME_FILE)
+    kit = read(root, DESIGN_KIT)
+
+    assert "static let accentUIColor = forestUIColor" in theme_file, "强调色未固定为品牌绿"
+    assert "UIColor.systemGroupedBackground" in theme_file, "页面背景未系统化"
+    assert "UIColor.secondarySystemGroupedBackground" in theme_file, "卡片背景未系统化"
+    assert "static let hairUIColor = UIColor.separator" in theme_file, "分隔线未系统化"
+    assert "static let subUIColor = UIColor.secondaryLabel" in theme_file, "次要文字未系统化"
+    assert "static let cardRadius: CGFloat = 10" in theme_file, "卡片圆角未改为 10"
+    assert "cardRadius: CGFloat = 26" not in theme_file, "旧圆角残留"
+    assert "palette(traits)" not in theme_file, "季节解析函数仍被引用"
+    assert "AppThemePalette.mix" in theme_file, "mixUIColor 不应受影响"
+
+    assert "minHeight: 44" in kit and "minHeight: 52" not in kit, "行高未改为 44"
+    assert "var font: Font = .body" in kit, "行标题未改语义字体"
+    assert "font(.footnote).foregroundStyle(MetasequoiaTheme.sub)" in kit, "副文字未改语义字体"
+    assert ".font(.callout).foregroundStyle(MetasequoiaTheme.sub)" in kit, "行值未改语义字体"
+    assert "font(.system(size: 17))" not in kit, "固定 17pt 标题残留"
+
+    print("=== trim summary: iOS 化 ===", flush=True)
+    print("  卡片圆角 26→10，行高 52→44，行内边距 20→16", flush=True)
+    print("  页面/卡片/分隔线/次要文字 → iOS 系统分组色；强调色固定水杉绿", flush=True)
+    print("  语义字体 .body/.callout/.footnote，支持动态字体；键盘皮肤四季色不受影响", flush=True)
     print("TRIM_OK", flush=True)
 
 
@@ -542,6 +718,29 @@ def main() -> None:
     replace_once(root, KEYBOARD_VC, SYS_APPLY_ROUTE_OLD, SYS_APPLY_ROUTE_NEW, "R33 键盘注入系统翻译服务")
     replace_once(root, RUST_PREFS, SYS_RUST_DEFAULTS_OLD, SYS_RUST_DEFAULTS_NEW, "R36 候选翻译默认开")
     overlay(root, TRANSLATION_SETTINGS, "TranslationProviderSettingsView.swift", "R34 设置页锁定系统翻译（移除全部在线服务选项与凭据输入）")
+    replace_once(root, THEME_FILE, UI_ACCENT_OLD, UI_ACCENT_NEW, "R39 强调色固定品牌绿")
+    replace_once(root, THEME_FILE, UI_ON_ACCENT_OLD, UI_ON_ACCENT_NEW, "R39b 强调色前景固定")
+    replace_once(root, THEME_FILE, UI_ACCENT_SOFT_OLD, UI_ACCENT_SOFT_NEW, "R40 着色底固定经典值")
+    replace_once(root, THEME_FILE, UI_CANVAS_OLD, UI_CANVAS_NEW, "R41 页面背景系统化")
+    replace_once(root, THEME_FILE, UI_SURFACE_OLD, UI_SURFACE_NEW, "R42 卡片背景系统化")
+    replace_once(root, THEME_FILE, UI_HAIR_OLD, UI_HAIR_NEW, "R43 分隔线系统化")
+    replace_once(root, THEME_FILE, UI_SUB_OLD, UI_SUB_NEW, "R44 次要文字系统化")
+    replace_once(root, THEME_FILE, UI_RADIUS_OLD, UI_RADIUS_NEW, "R45 卡片圆角 26→10")
+    replace_once(root, THEME_FILE, UI_PALETTE_FN_OLD, UI_PALETTE_FN_NEW, "R46 移除未用的季节解析函数")
+    replace_once(root, DESIGN_KIT, UI_SUBTEXT_OLD, UI_SUBTEXT_NEW, "R47 副文字语义字体")
+    replace_once(root, DESIGN_KIT, UI_ROW_METRICS_OLD, UI_ROW_METRICS_NEW, "R48 行高 44 / 内边距 16")
+    replace_once(root, DESIGN_KIT, UI_TOGGLE_ON_OLD, UI_TOGGLE_ON_NEW, "R49 开关行度量")
+    replace_once(root, DESIGN_KIT, UI_TOGGLE_OFF_OLD, UI_TOGGLE_OFF_NEW, "R50 禁用开关行度量")
+    replace_once(root, DESIGN_KIT, UI_GROUP_TITLE_OLD, UI_GROUP_TITLE_NEW, "R51 分组标题度量与字体")
+    replace_once(root, DESIGN_KIT, UI_GROUP_FOOTER_OLD, UI_GROUP_FOOTER_NEW, "R52 分组脚注度量")
+    replace_once(root, DESIGN_KIT, UI_GROUP_HEADER_OLD, UI_GROUP_HEADER_NEW, "R53 分区头语义字体")
+    replace_once(root, DESIGN_KIT, UI_INFO_TITLE_FONT_OLD, UI_INFO_TITLE_FONT_NEW, "R54 行标题语义字体")
+    replace_once(root, DESIGN_KIT, UI_NAV_VALUE_OLD, UI_NAV_VALUE_NEW, "R55 导航行值语义字体")
+    replace_once(root, DESIGN_KIT, UI_VALUE_ROW_OLD, UI_VALUE_ROW_NEW, "R56 只读行值语义字体")
+    replace_once(root, DESIGN_KIT, UI_SELECT_VALUE_OLD, UI_SELECT_VALUE_NEW, "R57 选择行值语义字体")
+    replace_once(root, DESIGN_KIT, UI_INLINE_BTN_OLD, UI_INLINE_BTN_NEW, "R58 行内按钮语义字体")
+    replace_once(root, DESIGN_KIT, UI_CHEVRON_OLD, UI_CHEVRON_NEW, "R59 箭头颜色对齐系统")
+    replace_once(root, DESIGN_KIT, UI_EXT_LINK_OLD, UI_EXT_LINK_NEW, "R60 外链图标颜色对齐系统")
     verify(root)
 
 
