@@ -6,20 +6,20 @@ import Translation
 /// 所有翻译都在这台设备上完成：按 Apple 文档，TranslationSession 的翻译全部在设备端，
 /// Apple 最多收集 bundle ID 与源/目标语言的性能统计，不包含原文或译文。
 /// 前提：用户已在「设置 → 翻译 → 已下载的语言」装好简体中文与目标语言；
-/// 语言对没装时 init 会 throw，这里安静返回空结果，让候选栏回退到随包离线释义。
-@available(iOS 18.0, *)
+/// 语言对没装时 isReady 为 false，这里安静返回空结果，让候选栏回退到随包离线释义。
+///
+/// 注意：TranslationSession 类本身是 iOS 18+，但 `init(installedSource:target:)` 与
+/// `isReady` 在 SDK 里标注为 iOS 26+（文档页只写了类的可用性）。本机 iOS 27 可用。
+@available(iOS 26.0, *)
 struct SystemCandidateTranslationService: CandidateTranslationService {
   func translate(words: [String], target: String) async throws -> [String] {
     guard !words.isEmpty else { return [] }
     let source = Locale.Language(identifier: "zh-Hans")
     let destination = Locale.Language(identifier: Self.localeIdentifier(for: target))
-    let session: TranslationSession
-    do {
-      session = try TranslationSession(installedSource: source, target: destination)
-    } catch {
-      return words.map { _ in "" }
-    }
-    guard session.isReady else { return words.map { _ in "" } }
+    // 这个初始化器不 throws：语言对没装时由下面的 isReady 判断。
+    let session = TranslationSession(installedSource: source, target: destination)
+    let ready = await session.isReady
+    guard ready else { return words.map { _ in "" } }
     let requests = words.enumerated().map { index, word in
       TranslationSession.Request(sourceText: word, clientIdentifier: String(index))
     }

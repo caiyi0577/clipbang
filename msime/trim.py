@@ -246,7 +246,7 @@ RUST_HELPCODE_NEW = """        helpcode: false,
 #
 # 内置 msime-english.db 的 zh_en_glosses 只有 18,474 条、单字仅 2 条（「牛」没有），
 # 且由英文维基词典反向对齐而来，质量很差。改接 Translation.framework 的
-# TranslationSession（iOS 18+）：翻译全在设备端，Apple 只收 bundle ID 与语言对。
+# TranslationSession（iOS 26+）：翻译全在设备端，Apple 只收 bundle ID 与语言对。
 # 前提：系统「设置 → 翻译」里已下载简体中文和目标语言；没装时安静返回空结果，
 # 由候选栏回退到随包离线释义（仍需 candidate_english_gloss = true 作为显示总开关）。
 # ---------------------------------------------------------------------------
@@ -282,8 +282,8 @@ SYS_PREFERRED_GLOSS_NEW = "    case .niutrans, .tencent, .custom, .ai, .system: 
 SYS_ROUTE_IN_OLD = """  static func route(in preferences: [String: Any]?) -> TranslationRoute {
     let niutrans = """
 SYS_ROUTE_IN_NEW = """  static func route(in preferences: [String: Any]?) -> TranslationRoute {
-    // 定制版：iOS 18+ 一律走 Apple 设备端系统翻译，不再读取任何在线服务配置。
-    if #available(iOS 18.0, *) { return .system }
+    // 定制版：iOS 26+ 一律走 Apple 设备端系统翻译，不再读取任何在线服务配置。
+    if #available(iOS 26.0, *) { return .system }
     let niutrans = """
 
 SYS_CARD_SOURCE_OLD = "    case offline, account, tencent, niutrans, custom, ai"
@@ -308,7 +308,7 @@ SYS_STORE_INIT_NEW = """  init(service: (any CandidateTranslationService)? = nil
        cacheLimit: Int = 2_000) {
     if let service {
       self.service = service
-    } else if #available(iOS 18.0, *) {
+    } else if #available(iOS 26.0, *) {
       self.service = SystemCandidateTranslationService()
     } else {
       self.service = ProviderCandidateTranslationService(route: .none)
@@ -320,11 +320,11 @@ SYS_STORE_INIT_NEW = """  init(service: (any CandidateTranslationService)? = nil
 SYS_APPLY_ROUTE_OLD = """    translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
                      scope: scope)"""
 SYS_APPLY_ROUTE_NEW = """    // 定制版：候选释义一律由 Apple 设备端系统翻译提供，不发任何网络请求。
-    if #available(iOS 18.0, *) {
+    if #available(iOS 26.0, *) {
       translations.use(SystemCandidateTranslationService(), scope: "system-apple")
     } else {
-      translations.use(route == .account ? BackendCandidateTranslationService() : ProviderCandidateTranslationService(route: route),
-                       scope: scope)
+      // 低版本没有设备端系统翻译，直接不发任何翻译请求。
+      translations.use(ProviderCandidateTranslationService(route: .none), scope: "none")
     }"""
 
 SYS_SETTINGS_SWITCH_OLD = "      case .off, .account:\n        EmptyView()"
@@ -407,7 +407,7 @@ def verify(root: Path) -> None:
     assert "import Translation" in sys_file, "系统翻译服务未落地"
     assert "case off, account, niutrans, tencent, custom, ai, system" in tpref
     assert "  case system\n" in tpref
-    assert "if #available(iOS 18.0, *) { return .system }" in tpref
+    assert "if #available(iOS 26.0, *) { return .system }" in tpref
     assert "SystemCandidateTranslationService()" in tstore
     assert 'SystemCandidateTranslationService(), scope: "system-apple"' in kvc
     assert "case .off, .account, .system:" in tsettings
