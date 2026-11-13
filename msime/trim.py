@@ -51,7 +51,7 @@ TRANSLATION_PREF = f"{IOS}/SharedUI/candidate/TranslationProviderPreference.swif
 TRANSLATION_STORE = f"{IOS}/KeyboardExtension/Sources/candidate/CandidateTranslationStore.swift"
 TRANSLATION_SETTINGS = f"{IOS}/App/Sources/settings/TranslationProviderSettingsView.swift"
 GLOSS_CARD = f"{IOS}/KeyboardExtension/Sources/candidate/CandidateGlossCard.swift"
-SYS_TRANSLATION = f"{IOS}/SharedUI/candidate/SystemCandidateTranslationService.swift"
+SYS_TRANSLATION = f"{IOS}/KeyboardExtension/Sources/candidate/SystemCandidateTranslationService.swift"
 RUST_PREFS = "crates/client-core/src/preferences.rs"
 
 
@@ -369,18 +369,31 @@ SYS_TEST_NEW = """  private func test() {
     let route = TranslationProviderPreference.route(in: document)
     if #available(iOS 26.0, *) {
       // 定制版：候选释义走 Apple 设备端系统翻译，测试也不再发任何网络请求。
+      // （翻译协议在键盘扩展 target，主 App 这里直接内联调用 TranslationSession。）
       testing = true
       status = nil
       let id = testGeneration.begin()
       operation = Task {
-        let result = try? await SystemCandidateTranslationService().translate(words: ["你好"], target: "EN")
-        guard testGeneration.isCurrent(id) else { return }
-        testing = false
-        operation = nil
-        if let gloss = result?.first, !gloss.isEmpty {
-          status = "测试成功：你好 → \\(gloss)"
-        } else {
-          status = "测试失败：请先在「设置 → 翻译 → 已下载的语言」下载 简体中文 与 English，并保持设备联网（首次下载需要）"
+        do {
+          let session = TranslationSession(
+            installedSource: Locale.Language(identifier: "zh-Hans"),
+            target: Locale.Language(identifier: "en-US"))
+          let ready = await session.isReady
+          guard ready, testGeneration.isCurrent(id) else {
+            testing = false; operation = nil
+            status = "测试失败：请先在「设置 → 翻译 → 已下载的语言」下载 简体中文 与 English"
+            return
+          }
+          let response = try await session.translate("你好")
+          guard testGeneration.isCurrent(id) else { return }
+          testing = false
+          operation = nil
+          status = "测试成功：你好 → \\(response.targetText)"
+        } catch {
+          guard testGeneration.isCurrent(id) else { return }
+          testing = false
+          operation = nil
+          status = "测试失败：请先在「设置 → 翻译 → 已下载的语言」下载 简体中文 与 English"
         }
       }
       return
@@ -475,7 +488,7 @@ def verify(root: Path) -> None:
     assert "case .off, .account, .system:" in tsettings
     assert "case offline, account, tencent, niutrans, custom, ai, system" in gcard
     assert "candidate_translations: true," in rust
-    assert 'SystemCandidateTranslationService().translate(words: ["你好"], target: "EN")' in tsettings
+    assert 'TranslationSession(' in tsettings and 'response.targetText' in tsettings
 
     print("=== trim summary: Apple 系统翻译 ===", flush=True)
     print("  TranslationSession 设备端翻译，原文译文不出设备、零联网", flush=True)
