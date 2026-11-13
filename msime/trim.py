@@ -41,7 +41,12 @@ LANGUAGE_TESTS = f"{IOS}/KeyboardTests/settings/InputLanguageTests.swift"
 VOICE_PRESETS = f"{IOS}/App/Sources/settings/FeatureSettingsViews.swift"
 CLOUD_CANDIDATE_PREF = f"{IOS}/SharedUI/candidate/CloudCandidatePreference.swift"
 CANDIDATE_OPTIONS = f"{IOS}/App/Sources/settings/CandidateOptionsSettingsView.swift"
+ONBOARDING = f"{IOS}/App/Sources/app/OnboardingView.swift"
 KEYBOARD_VC = f"{IOS}/KeyboardExtension/Sources/keyboard/KeyboardViewController.swift"
+KEYBOARD_LAYOUT_VIEW = f"{IOS}/App/Sources/keyboard/KeyboardLayoutSettingsView.swift"
+KEYBOARD_LAYOUT_PREF = f"{IOS}/SharedUI/preferences/KeyboardLayoutPreference.swift"
+PLUGIN_DETAIL = f"{IOS}/App/Sources/plugins/PluginDetailView.swift"
+RUST_OPTIONS = "crates/engine/src/host/options.rs"
 RUST_PREFS = "crates/client-core/src/preferences.rs"
 
 
@@ -186,6 +191,51 @@ RUST_GLOSS_NEW = """            candidate_translations: false,
             candidate_translation_scope: CandidateTranslationScope::Highlighted,
             candidate_english_gloss: true,"""
 
+# ---------------------------------------------------------------------------
+# 第四轮：彻底移除辅助码（用户明确表示从来没用过、整个功能删掉）
+#
+# 五道门同时关：设置页整组不渲染、Shift 开关不显示、偏好恒 false（⇧ 固定变
+# 「分词」）、插件页不再有入口、引擎 helpcode/show_helpcode 默认 false。
+# helpcodes/ 下 7 张静态码表仍随包：它们由 stage-resources.sh 与引擎资源校验链
+# 固定打包，删文件会破坏 verify_resources；但引擎已不加载、界面也看不到。
+# ---------------------------------------------------------------------------
+HELPCODE_GROUP_OLD = """        chineseGroup
+        helpcodeGroup
+        translationGroup"""
+HELPCODE_GROUP_NEW = """        chineseGroup
+        translationGroup"""
+
+SHIFT_TOGGLE_OLD = """      DesignToggleRow(title: "组字时保留 Shift", info: "全拼 26 键组字时左下角保留 ⇧，点一下再输字母即辅助码；默认开启，关闭后这一键改为「分词」，用来断开音节",
+                      isOn: Binding(get: { quanpinShift }, set: { saveQuanpinShift($0) }))
+        .accessibilityIdentifier("appQuanpinShiftToggle")
+"""
+
+SHIFT_PREF_OLD = """  static func sharedQuanpinShift(in preferences: [String: Any]?) -> Bool {
+    preferences?[quanpinShiftDocumentKey] as? Bool ?? true
+  }
+
+  static var quanpinShift: Bool {
+    get { defaults.object(forKey: quanpinShiftKey) as? Bool ?? true }
+    set { defaults.set(newValue, forKey: quanpinShiftKey) }
+  }"""
+SHIFT_PREF_NEW = """  /// 辅助码已整体移除：共享文档与 App Group 旧值一律忽略，⇧ 固定为「分词」键。
+  static func sharedQuanpinShift(in preferences: [String: Any]?) -> Bool { false }
+
+  static var quanpinShift: Bool {
+    get { false }
+    set { /* 恒关：辅助码已移除 */ }
+  }"""
+
+PLUGIN_LINK_OLD = """      NavigationLink("前往辅助码设置") { HelpcodeSettingsView() }
+"""
+
+RUST_HELPCODE_OLD = """        helpcode: true,
+        strict_quanpin_helpcode: false,
+        show_helpcode: true,"""
+RUST_HELPCODE_NEW = """        helpcode: false,
+        strict_quanpin_helpcode: false,
+        show_helpcode: false,"""
+
 
 def verify(root: Path) -> None:
     """把裁剪结果打进 CI 日志，便于事后核对这一轮到底生效了没有。"""
@@ -227,6 +277,22 @@ def verify(root: Path) -> None:
     print("  云联想: 恒开，端点 inputtools.google.com，设置页无开关", flush=True)
     print("  云剪贴板: 移除，键盘只有本机剪贴板历史且默认开启", flush=True)
     print("  翻译: 离线释义（英文内置 + 六语言 zh-*.db 由 CI 打进包），零联网", flush=True)
+
+    onboarding = read(root, ONBOARDING)
+    layout_view = read(root, KEYBOARD_LAYOUT_VIEW)
+    layout_pref = read(root, KEYBOARD_LAYOUT_PREF)
+    plugin_detail = read(root, PLUGIN_DETAIL)
+    rust_options = read(root, RUST_OPTIONS)
+
+    assert "        helpcodeGroup\n" not in onboarding, "设置页仍渲染辅助码组"
+    assert "组字时保留 Shift" not in layout_view, "Shift 开关仍在设置页"
+    assert "static func sharedQuanpinShift(in preferences: [String: Any]?) -> Bool { false }" in layout_pref
+    assert 'NavigationLink("前往辅助码设置")' not in plugin_detail, "插件页仍有辅助码入口"
+    assert "helpcode: false," in rust_options and "show_helpcode: false," in rust_options
+
+    print("=== trim summary: 辅助码已移除 ===", flush=True)
+    print("  设置页「辅助码」整组、Shift 开关、插件页入口全部移除", flush=True)
+    print("  ⇧ 固定为分词键；引擎 helpcode / show_helpcode 默认关", flush=True)
     print("TRIM_OK", flush=True)
 
 
@@ -248,6 +314,11 @@ def main() -> None:
     replace_once(root, KEYBOARD_VC, CLIPBOARD_CLOUD_OLD, CLIPBOARD_CLOUD_NEW, "R12 云剪贴板恒为本地")
     replace_once(root, RUST_PREFS, RUST_CLIPBOARD_OLD, RUST_CLIPBOARD_NEW, "R13 本机剪贴板历史默认开")
     replace_once(root, RUST_PREFS, RUST_GLOSS_OLD, RUST_GLOSS_NEW, "R14 离线英文释义默认显示")
+    replace_once(root, ONBOARDING, HELPCODE_GROUP_OLD, HELPCODE_GROUP_NEW, "R15 设置页移除辅助码整组")
+    replace_once(root, KEYBOARD_LAYOUT_VIEW, SHIFT_TOGGLE_OLD, "", "R16 移除组字时保留 Shift 开关")
+    replace_once(root, KEYBOARD_LAYOUT_PREF, SHIFT_PREF_OLD, SHIFT_PREF_NEW, "R17 辅助码偏好恒关")
+    replace_once(root, PLUGIN_DETAIL, PLUGIN_LINK_OLD, "", "R18 移除插件页辅助码入口")
+    replace_once(root, RUST_OPTIONS, RUST_HELPCODE_OLD, RUST_HELPCODE_NEW, "R19 引擎辅助码默认关")
     verify(root)
 
 
