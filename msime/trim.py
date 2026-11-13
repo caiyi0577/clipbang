@@ -51,7 +51,7 @@ TRANSLATION_PREF = f"{IOS}/SharedUI/candidate/TranslationProviderPreference.swif
 TRANSLATION_STORE = f"{IOS}/KeyboardExtension/Sources/candidate/CandidateTranslationStore.swift"
 TRANSLATION_SETTINGS = f"{IOS}/App/Sources/settings/TranslationProviderSettingsView.swift"
 GLOSS_CARD = f"{IOS}/KeyboardExtension/Sources/candidate/CandidateGlossCard.swift"
-SYS_TRANSLATION = f"{IOS}/KeyboardExtension/Sources/candidate/SystemCandidateTranslationService.swift"
+SYS_TRANSLATION = f"{IOS}/SharedUI/candidate/SystemCandidateTranslationService.swift"
 RUST_PREFS = "crates/client-core/src/preferences.rs"
 
 
