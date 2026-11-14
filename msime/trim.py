@@ -986,7 +986,10 @@ def verify(root: Path) -> None:
     assert "INFOPLIST_KEY_CFBundleDisplayName: ccboard" in project, "主 App 显示名未改"
     assert "CFBundleDisplayName: ccboard" in project, "键盘扩展显示名未改"
     assert "<string>ccboard</string>" in ext_plist, "键盘扩展 Info.plist 未改"
-    assert "app.msime.ios" in project and "PRODUCT_NAME: MSIMEApp" in project, "技术标识被误改"
+    # CI 在裁剪之前会把 bundle id 从 app.msime.ios 换成签名用的 app.spinach2172.carrot9535，
+    # 两种值都合法；只确认 PRODUCT_NAME 没被改、bundle id 声明还在。
+    assert "PRODUCT_NAME: MSIMEApp" in project, "PRODUCT_NAME 被误改"
+    assert ("app.msime.ios" in project or "app.spinach2172.carrot9535" in project), "bundle id 异常"
 
     assert "UIColor.systemBlue" in logo_shape, "绘图 logo 未用系统蓝"
     assert "0xA8 / 255.0" not in logo_shape, "旧绿边仍在绘图 logo 里"
