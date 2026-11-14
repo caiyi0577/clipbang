@@ -790,22 +790,35 @@ LOGO_SHAPE = f"{IOS}/SharedUI/core/MSIMELogoShape.swift"
 PROJECT_YML = f"{IOS}/project.yml"
 EXT_PLIST = f"{IOS}/KeyboardExtension/Resources/Info.plist"
 
+# 不扫 .json：shared/contracts/editions.json 被 include_str! 编进资源校验链，
+# 里面桌面端的 display_name 属于契约元数据，iOS 运行时不读，保持原样。
 BRAND_TEXT_EXT = {
     ".swift", ".plist", ".storyboard", ".yml", ".pbxproj", ".md", ".py",
-    ".json", ".strings", ".entitlements", ".xcconfig", ".svg", ".txt",
+    ".strings", ".entitlements", ".xcconfig", ".svg", ".txt",
+    ".rs", ".h", ".m", ".mm", ".cpp", ".cc", ".html", ".toml",
 }
 BRAND_REPLACEMENTS = [
     ("水杉输入法", "ccboard"),
     ("水杉", "ccboard"),
     ("METASEQUOIA IME", "CCBOARD"),
     ("© 2026 Metasequoia", "© 2026 ccboard"),
+    # AI 助手系统提示词里的括注：改名后变成 "ccboard（MSIME，Metasequoia IME）"，清掉旧英文品牌。
+    ("（MSIME，Metasequoia IME）", ""),
 ]
 
 
 def iter_text_files(root: Path):
-    for path in sorted((root / IOS).rglob("*")):
-        if path.is_file() and path.suffix.lower() in BRAND_TEXT_EXT:
-            yield path
+    """iOS 侧 + Rust 静态库侧的用户可见文案。
+
+    Rust 的 clipboard.rs / account/name.rs / skin/app_theme.rs 里也有会显示给
+    键盘用户的中文品牌词，只扫 platforms/ios 会漏；但 shared/contracts 不动。
+    """
+    for base in (root / IOS, root / "crates", root / "shared" / "backend"):
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            if path.is_file() and path.suffix.lower() in BRAND_TEXT_EXT:
+                yield path
 
 
 def install_brand_assets(root: Path) -> None:
@@ -1019,8 +1032,9 @@ def verify(root: Path) -> None:
     assert asset_count >= 60, f"品牌资源数量不足: {asset_count}"
 
     print("=== trim summary: 品牌改名与换标 ===", flush=True)
-    print(f"  水杉输入法 → ccboard；{asset_count} 个图标资源 + 绘图 logo 全部替换", flush=True)
+    print(f"  水杉输入法 → ccboard；iOS + Rust 侧文案 / {asset_count} 个图标资源 / 绘图 logo 全部替换", flush=True)
     print("  CFBundleIdentifier / PRODUCT_NAME / 类名等技术标识保持不变", flush=True)
+    print("  桌面端 editions.json 契约元数据保留（iOS 不读，属 include_str! 资源校验链）", flush=True)
     print("TRIM_OK", flush=True)
 
 
