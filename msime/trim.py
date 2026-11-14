@@ -27,6 +27,7 @@ CI 从固定 SHA 拉取上游 ``metasequoiaime/msime`` 作为不变的底座，�
 """
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -771,6 +772,84 @@ KB_CANDIDATE_ACCENT_OLD = """      accent: candidate?.accent ?? keyboard.accent,
 KB_CANDIDATE_ACCENT_NEW = """      accent: keyboard.accent,"""
 
 
+# ---------------------------------------------------------------------------
+# 品牌改名与换标：水杉输入法 → ccboard。
+#
+# 名称全部写死在 iOS 侧（project.yml 的 INFOPLIST_KEY_CFBundleDisplayName、
+# 键盘扩展 Info.plist、LaunchScreen.storyboard、约 100 个 Swift 文件里的 UI 文案），
+# 不经 Rust：shared/contracts/editions.json 被 include_str! 编进资源校验链，不能动。
+# CFBundleIdentifier / PRODUCT_NAME / 类名 / msime:// 等技术标识保持不变，否则会
+# 破坏 App Group、签名和覆盖安装。
+#
+# logo 除了 Assets.xcassets 里 60 张 PNG，还有一份用代码画出来的旧标志
+# （MSIMELogoShape.swift，绿边折线），工具栏/皮肤选择器/启动页都用它；
+# 必须连绘图实现一起换，只覆盖 PNG 会留下旧图形。
+# ---------------------------------------------------------------------------
+BRAND_ASSETS = HERE / "assets"
+LOGO_SHAPE = f"{IOS}/SharedUI/core/MSIMELogoShape.swift"
+PROJECT_YML = f"{IOS}/project.yml"
+EXT_PLIST = f"{IOS}/KeyboardExtension/Resources/Info.plist"
+
+BRAND_TEXT_EXT = {
+    ".swift", ".plist", ".storyboard", ".yml", ".pbxproj", ".md", ".py",
+    ".json", ".strings", ".entitlements", ".xcconfig", ".svg", ".txt",
+}
+BRAND_REPLACEMENTS = [
+    ("水杉输入法", "ccboard"),
+    ("水杉", "ccboard"),
+    ("METASEQUOIA IME", "CCBOARD"),
+    ("© 2026 Metasequoia", "© 2026 ccboard"),
+]
+
+
+def iter_text_files(root: Path):
+    for path in sorted((root / IOS).rglob("*")):
+        if path.is_file() and path.suffix.lower() in BRAND_TEXT_EXT:
+            yield path
+
+
+def install_brand_assets(root: Path) -> None:
+    """把本仓库 assets/ 下的全套新图标与 SVG 覆盖到上游同名路径。
+
+    文件名与尺寸都和上游一致，Contents.json 的映射不用改。
+    """
+    if not BRAND_ASSETS.is_dir():
+        raise SystemExit(f"[FAIL] 缺少品牌资源目录: {BRAND_ASSETS}")
+    count = 0
+    for src in sorted(BRAND_ASSETS.rglob("*")):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(BRAND_ASSETS)
+        dst = root / rel
+        if not dst.is_file():
+            raise SystemExit(f"[FAIL] 品牌资源目标不存在: {rel.as_posix()}")
+        shutil.copy2(src, dst)
+        count += 1
+    print(f"[patch] R71 品牌图标资源覆盖 {count} 个文件", flush=True)
+
+
+def rebrand(root: Path) -> None:
+    """把所有用户可见的中文品牌文案改成 ccboard（技术标识不受影响）。"""
+    files, hits = 0, 0
+    for path in iter_text_files(root):
+        try:
+            with path.open("r", encoding="utf-8", newline="") as f:
+                text = f.read()
+        except (UnicodeDecodeError, OSError):
+            continue
+        updated = text
+        for old, new in BRAND_REPLACEMENTS:
+            hits += updated.count(old)
+            updated = updated.replace(old, new)
+        if updated != text:
+            with path.open("w", encoding="utf-8", newline="") as f:
+                f.write(updated)
+            files += 1
+    print(f"[patch] R72 品牌文案 {files} 个文件 / {hits} 处替换", flush=True)
+    if hits < 250:
+        raise SystemExit(f"[FAIL] 品牌文案命中过少 ({hits})，上游结构可能变了")
+
+
 def verify(root: Path) -> None:
     """把裁剪结果打进 CI 日志，便于事后核对这一轮到底生效了没有。"""
     offered = read(root, PREF)
@@ -899,6 +978,46 @@ def verify(root: Path) -> None:
     print("  drawnPalette 收口：system/native/内置主题/跟随系统的 accent·onAccent·候选首选统一",
           flush=True)
     print("  各皮肤背景/按键/文字公式保留；自定义皮肤 design 与候选皮肤包不动", flush=True)
+
+    project = read(root, PROJECT_YML)
+    ext_plist = read(root, EXT_PLIST)
+    logo_shape = read(root, LOGO_SHAPE)
+
+    assert "INFOPLIST_KEY_CFBundleDisplayName: ccboard" in project, "主 App 显示名未改"
+    assert "CFBundleDisplayName: ccboard" in project, "键盘扩展显示名未改"
+    assert "<string>ccboard</string>" in ext_plist, "键盘扩展 Info.plist 未改"
+    assert "app.msime.ios" in project and "PRODUCT_NAME: MSIMEApp" in project, "技术标识被误改"
+
+    assert "UIColor.systemBlue" in logo_shape, "绘图 logo 未用系统蓝"
+    assert "0xA8 / 255.0" not in logo_shape, "旧绿边仍在绘图 logo 里"
+    for symbol in ("MSIMELogoStroke", "MSIMELogoFrame", "MSIMELogoMark",
+                   "strokeDrawn", "static func draw(in"):
+        assert symbol in logo_shape, f"绘图 logo 缺少 API {symbol}"
+
+    leftovers = []
+    for path in iter_text_files(root):
+        try:
+            with path.open("r", encoding="utf-8", newline="") as f:
+                text = f.read()
+        except (UnicodeDecodeError, OSError):
+            continue
+        if any(old in text for old in ("水杉", "METASEQUOIA IME", "© 2026 Metasequoia")):
+            leftovers.append(path.relative_to(root).as_posix())
+    assert not leftovers, f"品牌名残留: {leftovers[:5]}"
+
+    asset_count = 0
+    for src in sorted(BRAND_ASSETS.rglob("*")):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(BRAND_ASSETS)
+        dst = root / rel
+        assert dst.is_file() and dst.read_bytes() == src.read_bytes(), f"品牌资源未覆盖: {rel.as_posix()}"
+        asset_count += 1
+    assert asset_count >= 60, f"品牌资源数量不足: {asset_count}"
+
+    print("=== trim summary: 品牌改名与换标 ===", flush=True)
+    print(f"  水杉输入法 → ccboard；{asset_count} 个图标资源 + 绘图 logo 全部替换", flush=True)
+    print("  CFBundleIdentifier / PRODUCT_NAME / 类名等技术标识保持不变", flush=True)
     print("TRIM_OK", flush=True)
 
 
@@ -978,6 +1097,9 @@ def main() -> None:
     replace_once(root, KB_KEYBOARD_THEME, KB_ACTION_FG_OLD, KB_ACTION_FG_NEW, "R68 回车键兜底前景改白色")
     replace_once(root, KB_KEYBOARD_THEME, KB_ON_ACCENT_OLD, KB_ON_ACCENT_NEW, "R69 强调色填充兜底前景改白色")
     replace_once(root, KB_CANDIDATE_PALETTE, KB_CANDIDATE_ACCENT_OLD, KB_CANDIDATE_ACCENT_NEW, "R70 候选条首选字色跟随键盘品牌色")
+    overlay(root, LOGO_SHAPE, "MSIMELogoShape.swift", "R73 绘图 logo 换成 ccboard 双 C 标志")
+    rebrand(root)
+    install_brand_assets(root)
     verify(root)
 
 
